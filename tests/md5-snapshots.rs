@@ -64,20 +64,29 @@ md5_snapshot_tests! {
 fn snapshot_test(name: &str, _: MutexGuard<'_, ()>) -> anyhow::Result<String> {
     let stdout = Rc::new(RefCell::default());
 
+    let toolchain = env::var("CARGO_EQUIP_TEST_NIGHTLY_TOOLCHAIN")
+        .unwrap_or_else(|_| "nightly".to_owned());
+    let proc_macro_srv_toolchain = env::var("CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN").ok();
+
+    let mut args = vec![
+        "".to_owned(),
+        "equip".to_owned(),
+        "--toolchain".to_owned(),
+        toolchain,
+        "--remove".to_owned(),
+        "docs".to_owned(),
+        "--minify".to_owned(),
+        "libs".to_owned(),
+        "--bin".to_owned(),
+        name.replace('_', "-"),
+    ];
+    if let Some(ref tc) = proc_macro_srv_toolchain {
+        args.push("--toolchain-for-proc-macro-srv".to_owned());
+        args.push(tc.clone());
+    }
+
     cargo_equip::run(
-        cargo_equip::Opt::from_iter_safe(&[
-            "",
-            "equip",
-            "--toolchain",
-            &env::var("CARGO_EQUIP_TEST_NIGHTLY_TOOLCHAIN")
-                .unwrap_or_else(|_| "nightly".to_owned()),
-            "--remove",
-            "docs",
-            "--minify",
-            "libs",
-            "--bin",
-            &name.replace('_', "-"),
-        ])?,
+        cargo_equip::Opt::from_iter_safe(args.iter().map(String::as_str))?,
         cargo_equip::Context {
             cwd: Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests")
