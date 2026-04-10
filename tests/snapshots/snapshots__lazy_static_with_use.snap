@@ -1,0 +1,73 @@
+---
+source: tests/snapshots.rs
+expression: output
+---
+#![deny(unused_imports)]
+
+pub use __cargo_equip::prelude::*;
+
+use lazy_static::lazy_static;
+
+fn main() {
+    let _: i32 = *N;
+}
+
+lazy_static! {
+    static ref N: i32 = 42;
+}
+
+// The following code was expanded by `cargo-equip`.
+
+///  # Bundled libraries
+/// 
+///  - `lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::lazy_static`
+/// 
+///  # License and Copyright Notices
+/// 
+///  - `lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)`
+/// 
+///      ```text
+///      Copyright (c) 2010 The Rust Project Developers
+/// 
+///      Permission is hereby granted, free of charge, to any
+///      person obtaining a copy of this software and associated
+///      documentation files (the "Software"), to deal in the
+///      Software without restriction, including without
+///      limitation the rights to use, copy, modify, merge,
+///      publish, distribute, sublicense, and/or sell copies of
+///      the Software, and to permit persons to whom the Software
+///      is furnished to do so, subject to the following
+///      conditions:
+/// 
+///      The above copyright notice and this permission notice
+///      shall be included in all copies or substantial portions
+///      of the Software.
+/// 
+///      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+///      ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+///      TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+///      PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+///      SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+///      CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+///      OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+///      IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+///      DEALINGS IN THE SOFTWARE.
+///      ```
+#[cfg_attr(any(), rustfmt::skip)]
+#[allow(unused)]
+mod __cargo_equip {
+    pub(crate) mod crates {
+        pub mod lazy_static {#![no_std]use crate::__cargo_equip::preludes::lazy_static::*;pub use crate::__cargo_equip::macros::lazy_static::*;#[path="inline_lazy.rs"]pub mod lazy{use crate::__cargo_equip::preludes::lazy_static::*;extern crate core;extern crate std;use self::std::prelude::v1::*;use self::std::cell::Cell;use self::std::hint::unreachable_unchecked;use self::std::sync::Once;#[allow(deprecated)]pub use self::std::sync::ONCE_INIT;pub struct Lazy<T:Sync>(Cell<Option<T>>,Once);impl<T:Sync>Lazy<T>{#[allow(deprecated)]pub const INIT:Self=Lazy(Cell::new(None),ONCE_INIT);#[inline(always)]pub fn get<F>(&'static self,f:F)->&T where F:FnOnce()->T,{self.1.call_once(||{self.0.set(Some(f()));});unsafe{match*self.0.as_ptr(){Some(ref x)=>x,None=>{debug_assert!(false,"attempted to derefence an uninitialized lazy static. This is a bug");unreachable_unchecked()},}}}}unsafe impl<T:Sync>Sync for Lazy<T>{}#[macro_export]macro_rules!__cargo_equip_macro_def_lazy_static___lazy_static_create{($NAME:ident,$T:ty)=>{static$NAME:$crate::__cargo_equip::crates::lazy_static::lazy::Lazy<$T> =$crate::__cargo_equip::crates::lazy_static::lazy::Lazy::INIT;};}macro_rules!__lazy_static_create{($($tt:tt)*)=>(crate::__cargo_equip_macro_def_lazy_static___lazy_static_create!{$($tt)*})}}pub use core::ops::Deref as __Deref;#[macro_export(local_inner_macros)]macro_rules!__cargo_equip_macro_def_lazy_static___lazy_static_internal{($(#[$attr:meta])*($($vis:tt)*)static ref$N:ident:$T:ty=$e:expr;$($t:tt)*)=>{__lazy_static_internal!(@MAKE TY,$(#[$attr])*,($($vis)*),$N);__lazy_static_internal!(@TAIL,$N:$T=$e);lazy_static!($($t)*);};(@TAIL,$N:ident:$T:ty=$e:expr)=>{impl$crate::__cargo_equip::crates::lazy_static::__Deref for$N{type Target=$T;fn deref(&self)->&$T{#[inline(always)]fn __static_ref_initialize()->$T{$e}#[inline(always)]fn __stability()->&'static$T{__lazy_static_create!(LAZY,$T);LAZY.get(__static_ref_initialize)}__stability()}}impl$crate::__cargo_equip::crates::lazy_static::LazyStatic for$N{fn initialize(lazy:&Self){let _=&**lazy;}}};(@MAKE TY,$(#[$attr:meta])*,($($vis:tt)*),$N:ident)=>{#[allow(missing_copy_implementations)]#[allow(non_camel_case_types)]#[allow(dead_code)]$(#[$attr])*$($vis)*struct$N{__private_field:()}#[doc(hidden)]$($vis)*static$N:$N=$N{__private_field:()};};()=>()}macro_rules!__lazy_static_internal{($($tt:tt)*)=>(crate::__cargo_equip_macro_def_lazy_static___lazy_static_internal!{$($tt)*})}#[macro_export(local_inner_macros)]macro_rules!__cargo_equip_macro_def_lazy_static_lazy_static{($(#[$attr:meta])*static ref$N:ident:$T:ty=$e:expr;$($t:tt)*)=>{__lazy_static_internal!($(#[$attr])*()static ref$N:$T=$e;$($t)*);};($(#[$attr:meta])*pub static ref$N:ident:$T:ty=$e:expr;$($t:tt)*)=>{__lazy_static_internal!($(#[$attr])*(pub)static ref$N:$T=$e;$($t)*);};($(#[$attr:meta])*pub($($vis:tt)+)static ref$N:ident:$T:ty=$e:expr;$($t:tt)*)=>{__lazy_static_internal!($(#[$attr])*(pub($($vis)+))static ref$N:$T=$e;$($t)*);};()=>()}macro_rules!lazy_static{($($tt:tt)*)=>(crate::__cargo_equip_macro_def_lazy_static_lazy_static!{$($tt)*})}pub trait LazyStatic{fn initialize(lazy:&Self);}pub fn initialize<T:LazyStatic>(lazy:&T){LazyStatic::initialize(lazy);}}
+    }
+
+    pub(crate) mod macros {
+        pub mod lazy_static {pub use crate::{__cargo_equip_macro_def_lazy_static___lazy_static_create as __lazy_static_create,__cargo_equip_macro_def_lazy_static___lazy_static_internal as __lazy_static_internal,__cargo_equip_macro_def_lazy_static_lazy_static as lazy_static};}
+    }
+
+    pub(crate) mod prelude {pub use crate::__cargo_equip::{crates::*,macros::lazy_static::*};}
+
+    mod preludes {
+        pub mod lazy_static {pub(in crate::__cargo_equip)use crate::__cargo_equip::macros::lazy_static::*;}
+    }
+}
+

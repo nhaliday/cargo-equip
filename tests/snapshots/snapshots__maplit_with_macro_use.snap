@@ -1,0 +1,73 @@
+---
+source: tests/snapshots.rs
+expression: output
+---
+/*#[macro_use]
+extern crate maplit as _;*/
+pub use __cargo_equip::prelude::*;
+
+use crate::__cargo_equip::macros::maplit::*;
+
+fn main() {
+    let _ = btreemap!(() => ());
+    let _ = btreeset!(());
+    let _ = hashmap!(() => ());
+    let _ = hashset!(());
+    assert_eq!(hashset!(2), convert_args!(keys = |x| x + 1, hashset!(1)));
+}
+
+// The following code was expanded by `cargo-equip`.
+
+///  # Bundled libraries
+/// 
+///  - `maplit 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::maplit`
+/// 
+///  # License and Copyright Notices
+/// 
+///  - `maplit 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)`
+/// 
+///      ```text
+///      Copyright (c) 2015
+/// 
+///      Permission is hereby granted, free of charge, to any
+///      person obtaining a copy of this software and associated
+///      documentation files (the "Software"), to deal in the
+///      Software without restriction, including without
+///      limitation the rights to use, copy, modify, merge,
+///      publish, distribute, sublicense, and/or sell copies of
+///      the Software, and to permit persons to whom the Software
+///      is furnished to do so, subject to the following
+///      conditions:
+/// 
+///      The above copyright notice and this permission notice
+///      shall be included in all copies or substantial portions
+///      of the Software.
+/// 
+///      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+///      ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+///      TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+///      PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+///      SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+///      CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+///      OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+///      IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+///      DEALINGS IN THE SOFTWARE.
+///      ```
+#[cfg_attr(any(), rustfmt::skip)]
+#[allow(unused)]
+mod __cargo_equip {
+    pub(crate) mod crates {
+        pub mod maplit {#![warn(unused_results)]use crate::__cargo_equip::preludes::maplit::*;pub use crate::__cargo_equip::macros::maplit::*;#[macro_export(local_inner_macros)]macro_rules!__cargo_equip_macro_def_maplit_hashmap{(@single$($x:tt)*)=>(());(@count$($rest:expr),*)=>(<[()]>::len(&[$(hashmap!(@single$rest)),*]));($($key:expr=>$value:expr,)+)=>{hashmap!($($key=>$value),+)};($($key:expr=>$value:expr),*)=>{{let _cap=hashmap!(@count$($key),*);let mut _map=::std::collections::HashMap::with_capacity(_cap);$(let _=_map.insert($key,$value);)*_map}};}macro_rules!hashmap{($($tt:tt)*)=>(crate::__cargo_equip_macro_def_maplit_hashmap!{$($tt)*})}#[macro_export(local_inner_macros)]macro_rules!__cargo_equip_macro_def_maplit_hashset{(@single$($x:tt)*)=>(());(@count$($rest:expr),*)=>(<[()]>::len(&[$(hashset!(@single$rest)),*]));($($key:expr,)+)=>{hashset!($($key),+)};($($key:expr),*)=>{{let _cap=hashset!(@count$($key),*);let mut _set=::std::collections::HashSet::with_capacity(_cap);$(let _=_set.insert($key);)*_set}};}macro_rules!hashset{($($tt:tt)*)=>(crate::__cargo_equip_macro_def_maplit_hashset!{$($tt)*})}#[macro_export(local_inner_macros)]macro_rules!__cargo_equip_macro_def_maplit_btreemap{($($key:expr=>$value:expr,)+)=>(btreemap!($($key=>$value),+));($($key:expr=>$value:expr),*)=>{{let mut _map=::std::collections::BTreeMap::new();$(let _=_map.insert($key,$value);)*_map}};}macro_rules!btreemap{($($tt:tt)*)=>(crate::__cargo_equip_macro_def_maplit_btreemap!{$($tt)*})}#[macro_export(local_inner_macros)]macro_rules!__cargo_equip_macro_def_maplit_btreeset{($($key:expr,)+)=>(btreeset!($($key),+));($($key:expr),*)=>{{let mut _set=::std::collections::BTreeSet::new();$(_set.insert($key);)*_set}};}macro_rules!btreeset{($($tt:tt)*)=>(crate::__cargo_equip_macro_def_maplit_btreeset!{$($tt)*})}pub fn __id<T>(t:T)->T{t}#[macro_export(local_inner_macros)]macro_rules!__cargo_equip_macro_def_maplit_convert_args{(keys=$kf:expr,$macro_name:ident!($($k:expr),*$(,)*))=>{$macro_name!{$(($kf)($k)),*}};(keys=$kf:expr,values=$vf:expr,$macro_name:ident!($($k:expr),*$(,)*))=>{$macro_name!{$(($kf)($k)),*}};(keys=$kf:expr,values=$vf:expr,$macro_name:ident!($($k:expr=>$v:expr),*$(,)*))=>{$macro_name!{$(($kf)($k)=>($vf)($v)),*}};(keys=$kf:expr,$macro_name:ident!($($rest:tt)*))=>{convert_args!{keys=$kf,values=$crate::__cargo_equip::crates::maplit::__id,$macro_name!($($rest)*)}};(values=$vf:expr,$macro_name:ident!($($rest:tt)*))=>{convert_args!{keys=$crate::__cargo_equip::crates::maplit::__id,values=$vf,$macro_name!($($rest)*)}};($macro_name:ident!$($rest:tt)*)=>{convert_args!{keys=::std::convert::Into::into,values=::std::convert::Into::into,$macro_name!$($rest)*}};}macro_rules!convert_args{($($tt:tt)*)=>(crate::__cargo_equip_macro_def_maplit_convert_args!{$($tt)*})}#[test]fn test_hashmap(){use std::collections::HashMap;use std::collections::HashSet;let names=hashmap!{1=>"one",2=>"two",};assert_eq!(names.len(),2);assert_eq!(names[&1],"one");assert_eq!(names[&2],"two");assert_eq!(names.get(&3),None);let empty:HashMap<i32,i32> =hashmap!{};assert_eq!(empty.len(),0);let _nested_compiles=hashmap!{1=>hashmap!{0=>1+2,},2=>hashmap!{1=>1,},};let _:HashMap<String,i32> =convert_args!(keys=String::from,hashmap!("one"=>1,"two"=>2,));let _:HashMap<String,i32> =convert_args!(keys=String::from,values=__id,hashmap!("one"=>1,"two"=>2,));let names:HashSet<String> =convert_args!(hashset!("one","two",));assert!(names.contains("one"));assert!(names.contains("two"));let lengths:HashSet<usize> =convert_args!(keys=str::len,hashset!("one","two",));assert_eq!(lengths.len(),1);let _no_trailing:HashSet<usize> =convert_args!(keys=str::len,hashset!("one","two"));}#[test]fn test_btreemap(){use std::collections::BTreeMap;let names=btreemap!{1=>"one",2=>"two",};assert_eq!(names.len(),2);assert_eq!(names[&1],"one");assert_eq!(names[&2],"two");assert_eq!(names.get(&3),None);let empty:BTreeMap<i32,i32> =btreemap!{};assert_eq!(empty.len(),0);let _nested_compiles=btreemap!{1=>btreemap!{0=>1+2,},2=>btreemap!{1=>1,},};}}
+    }
+
+    pub(crate) mod macros {
+        pub mod maplit {pub use crate::{__cargo_equip_macro_def_maplit_btreemap as btreemap,__cargo_equip_macro_def_maplit_btreeset as btreeset,__cargo_equip_macro_def_maplit_convert_args as convert_args,__cargo_equip_macro_def_maplit_hashmap as hashmap,__cargo_equip_macro_def_maplit_hashset as hashset};}
+    }
+
+    pub(crate) mod prelude {pub use crate::__cargo_equip::{crates::*,macros::maplit::*};}
+
+    mod preludes {
+        pub mod maplit {pub(in crate::__cargo_equip)use crate::__cargo_equip::macros::maplit::*;}
+    }
+}
+

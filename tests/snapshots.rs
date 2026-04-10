@@ -23,7 +23,7 @@ use structopt::StructOpt as _;
 // - smallvec (`#[deny(missing_docs)]`)
 // - superslice ("LICENCE")
 
-macro_rules! md5_snapshot_tests {
+macro_rules! snapshot_tests {
     ($($name:ident;)*) => {
         $(
             #[test]
@@ -31,7 +31,7 @@ macro_rules! md5_snapshot_tests {
                 // workaround for grcov
                 env::remove_var("RUSTFLAGS");
 
-                let output = format!("{:x}", md5::compute(snapshot_test(&stringify!($name).replace('_', "-"), LOCK.lock().unwrap())?));
+                let output = snapshot_test(&stringify!($name).replace('_', "-"), LOCK.lock().unwrap())?;
                 assert_snapshot!(stringify!($name), output);
                 Ok(())
             }
@@ -41,7 +41,7 @@ macro_rules! md5_snapshot_tests {
 
 static LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-md5_snapshot_tests! {
+snapshot_tests! {
     fixedbitset;
     lazy_static_with_macro_use;
     lazy_static_with_use;

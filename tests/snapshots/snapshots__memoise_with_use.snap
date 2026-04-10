@@ -1,0 +1,74 @@
+---
+source: tests/snapshots.rs
+expression: output
+---
+pub use __cargo_equip::prelude::*;
+
+#[allow(unused_imports)]
+use memoise::memoise;
+
+fn main() {
+    for i in 0..=10 {
+        println!("{}", fib(i));
+    }
+}
+
+/*#[memoise(n <= 10)]
+fn fib(n: i64) -> i64 {
+    if n == 0 || n == 1 {
+        return n;
+    }
+    fib(n - 1) + fib(n - 2)
+}*/
+thread_local ! (static FIB : std :: cell :: RefCell < Vec < Option < i64 > > > = std :: cell :: RefCell :: new (vec ! [None ; 11usize]));
+fn fib_reset() {
+    FIB.with(|cache| {
+        let mut r = cache.borrow_mut();
+        for r in r.iter_mut() {
+            *r = None
+        }
+    });
+}
+fn fib(n: i64) -> i64 {
+    if let Some(ret) = FIB.with(|cache| {
+        let mut bm = cache.borrow_mut();
+        bm[(n) as usize].clone()
+    }) {
+        return ret;
+    }
+    let ret: i64 = (|| {
+        if n == 0 || n == 1 {
+            return n;
+        }
+        fib(n - 1) + fib(n - 2)
+    })();
+    FIB.with(|cache| {
+        let mut bm = cache.borrow_mut();
+        bm[(n) as usize] = Some(ret.clone());
+    });
+    ret
+}
+
+// The following code was expanded by `cargo-equip`.
+
+///  # Procedural macros
+/// 
+///  - `memoise 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `BSD-3-Clause`
+#[cfg_attr(any(), rustfmt::skip)]
+#[allow(unused)]
+mod __cargo_equip {
+    pub(crate) mod crates {
+        pub mod memoise {pub use crate::__cargo_equip::macros::memoise::*;#[macro_export]macro_rules!__cargo_equip_macro_def_memoise_memoise{($(_:tt)*)=>(::std::compile_error!("`memoise` from `memoise 0.3.2` should have been expanded");)}#[macro_export]macro_rules!__cargo_equip_macro_def_memoise_memoise_map{($(_:tt)*)=>(::std::compile_error!("`memoise_map` from `memoise 0.3.2` should have been expanded");)}}
+    }
+
+    pub(crate) mod macros {
+        pub mod memoise {pub use crate::{__cargo_equip_macro_def_memoise_memoise as memoise,__cargo_equip_macro_def_memoise_memoise_map as memoise_map};}
+    }
+
+    pub(crate) mod prelude {pub use crate::__cargo_equip::crates::*;}
+
+    mod preludes {
+        pub mod memoise {}
+    }
+}
+
