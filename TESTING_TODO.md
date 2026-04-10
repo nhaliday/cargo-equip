@@ -37,3 +37,11 @@ Use the `CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN` env var in CI to pin a speci
 ### Compile-test the snapshot outputs
 
 The bundling pipeline already runs `cargo check` on the output during tests. Consider also verifying that the snapshot `.snap` files themselves contain compilable Rust code, as a guard against snapshot staleness.
+
+### Test coverage reporting
+
+Add coverage reporting via `cargo-llvm-cov` or `cargo-tarpaulin`. The snapshot tests call `cargo_equip::run()` as a library function (not a subprocess), so cargo-equip's own code is instrumented normally — no special setup needed beyond what works for unit tests.
+
+Caveats:
+- cargo-equip spawns subprocesses (`cargo build`, `cargo check`, `cargo udeps`, `rust-analyzer-proc-macro-srv`) which won't be instrumented, but that's expected — we care about covering cargo-equip's logic, not cargo's.
+- The existing `env::remove_var("RUSTFLAGS")` workaround in `tests/snapshots.rs` prevents coverage flags (e.g. `-C instrument-coverage`) from leaking into the `cargo check` calls that cargo-equip runs on bundled output. This should keep working as-is.
