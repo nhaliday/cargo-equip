@@ -4,20 +4,9 @@
 
 - **Full-text snapshots instead of MD5s**: Replaced MD5-hashed snapshot tests with full-text insta snapshots of the generated bundled code. When output changes, `cargo insta review` shows the exact diff instead of two opaque hashes.
 - **Configurable proc-macro-srv toolchain in tests**: Added `CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN` env var to decouple the proc-macro-srv binary version from the build/udeps toolchain.
+- **Conversion round-trip tests for `ra_proc_macro.rs`**: Test `proc_macro2 -> ra_ap_tt -> proc_macro2` round-trips for known token streams. Tests only construct `proc_macro2` types, so they don't need updating when `ra_ap_tt` types change — breakage surfaces as compile errors in the conversion functions, not the tests.
 
 ## TODO
-
-### Conversion round-trip tests for `ra_proc_macro.rs`
-
-Test `proc_macro2 -> ra_ap_tt -> proc_macro2` round-trips for known token streams without needing a proc-macro-srv binary. These would catch breakage in the type-mapping code (renamed types, changed representations, new enum variants) which was most of the work in API upgrades like 0.0.166 -> 0.0.288.
-
-Specific cases to cover:
-- All delimiter types (parenthesis, brace, bracket, none/invisible)
-- Idents (including keywords and raw idents)
-- All punct spacing variants
-- Literals (integers, floats, strings, byte strings, chars)
-- Nested groups / mixed token trees
-- Empty token streams
 
 ### Expansion integration tests for `ProcMacroExpander`
 

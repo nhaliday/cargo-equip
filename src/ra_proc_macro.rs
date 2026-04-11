@@ -232,7 +232,11 @@ fn from_ra_subtree(subtree: &tt::Subtree<impl Copy>) -> proc_macro2::Group {
     }
 
     fn from_ra_ident(ident: &tt::Ident<impl Copy>) -> proc_macro2::Ident {
-        proc_macro2::Ident::new(&ident.text, proc_macro2::Span::call_site())
+        if let Some(name) = ident.text.strip_prefix("r#") {
+            proc_macro2::Ident::new_raw(name, proc_macro2::Span::call_site())
+        } else {
+            proc_macro2::Ident::new(&ident.text, proc_macro2::Span::call_site())
+        }
     }
 
     fn from_ra_punct(punct: tt::Punct<impl Copy>) -> proc_macro2::Punct {
@@ -249,5 +253,110 @@ fn from_ra_subtree(subtree: &tt::Subtree<impl Copy>) -> proc_macro2::Group {
     fn from_ra_literal(lit: &tt::Literal<impl Copy>) -> proc_macro2::Literal {
         syn::parse_str(&lit.text)
             .unwrap_or_else(|e| panic!("could not parse {:?} as a literal: {}", &lit.text, e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+
+    fn roundtrip(input: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+        let group = proc_macro2::Group::new(proc_macro2::Delimiter::None, input);
+        let ra = from_proc_macro2_group(&group);
+        let output = from_ra_subtree(&ra);
+        output.stream()
+    }
+
+    fn assert_roundtrip(input: proc_macro2::TokenStream) {
+        let output = roundtrip(input.clone());
+        assert_eq!(input.to_string(), output.to_string());
+    }
+
+    #[test]
+    fn roundtrip_empty() {
+        assert_roundtrip(quote! {});
+    }
+
+    #[test]
+    fn roundtrip_idents() {
+        assert_roundtrip(quote! { foo bar baz });
+    }
+
+    #[test]
+    fn roundtrip_punct() {
+        assert_roundtrip(quote! { a + b * c });
+        assert_roundtrip(quote! { x -> y => z });
+        assert_roundtrip(quote! { a::b::c });
+    }
+
+    #[test]
+    fn roundtrip_literals() {
+        assert_roundtrip(quote! { 42 });
+        assert_roundtrip(quote! { 3.14 });
+        assert_roundtrip(quote! { "hello world" });
+        assert_roundtrip(quote! { b"bytes" });
+        assert_roundtrip(quote! { 'c' });
+        assert_roundtrip(quote! { 100u64 });
+        assert_roundtrip(quote! { 1.0f32 });
+    }
+
+    #[test]
+    fn roundtrip_delimiters() {
+        assert_roundtrip(quote! { (a, b, c) });
+        assert_roundtrip(quote! { [1, 2, 3] });
+        assert_roundtrip(quote! { { let x = 1; } });
+    }
+
+    #[test]
+    fn roundtrip_nested() {
+        assert_roundtrip(quote! {
+            fn main() {
+                let v = vec![1, 2, 3];
+                println!("{:?}", v);
+            }
+        });
+    }
+
+    #[test]
+    fn roundtrip_struct_with_derive() {
+        assert_roundtrip(quote! {
+            #[derive(Debug, Clone)]
+            struct Foo {
+                x: i32,
+                y: String,
+            }
+        });
+    }
+
+    #[test]
+    fn roundtrip_keywords() {
+        assert_roundtrip(quote! {
+            pub async fn example(self: &Self) -> impl Iterator<Item = u32> {
+                if true { loop { break; } } else { match x { _ => {} } }
+            }
+        });
+    }
+
+    #[test]
+    fn roundtrip_raw_idents() {
+        let r#type = proc_macro2::Ident::new_raw("type", proc_macro2::Span::call_site());
+        let r#match = proc_macro2::Ident::new_raw("match", proc_macro2::Span::call_site());
+        assert_roundtrip(quote! { let #r#type = #r#match; });
+    }
+
+    #[test]
+    fn roundtrip_invisible_delimiter() {
+        let inner = quote! { a + b };
+        let group = proc_macro2::Group::new(proc_macro2::Delimiter::None, inner);
+        assert_roundtrip(proc_macro2::TokenTree::Group(group).into());
+    }
+
+    #[test]
+    fn roundtrip_raw_strings() {
+        let raw_str: proc_macro2::TokenStream = r###"r#"hello "world""#"###.parse().unwrap();
+        assert_roundtrip(raw_str);
+        let raw_bstr: proc_macro2::TokenStream = r###"br#"hello "bytes""#"###.parse().unwrap();
+        assert_roundtrip(raw_bstr);
     }
 }
