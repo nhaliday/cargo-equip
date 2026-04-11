@@ -725,7 +725,9 @@ fn bundle(
 
     let mut code = if let Some((_, bin_target)) = root_crate.bin_like() {
         let code = cargo_util::paths::read(bin_target.src_path.as_ref())?;
-        if rust::find_skip_attribute(&code)? {
+        if rust::find_skip_attribute(&code)
+            .with_context(|| format!("could not parse `{}`", bin_target.src_path))?
+        {
             shell.status("Found", "`#![cfg_attr(cargo_equip, cargo_equip::skip)]`")?;
             return Ok(code);
         }

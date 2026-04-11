@@ -38,9 +38,10 @@ use syn::{
 };
 
 pub(crate) fn find_skip_attribute(code: &str) -> anyhow::Result<bool> {
-    let syn::File { attrs, .. } = syn::parse_file(code)
-        .map_err(|e| anyhow!("{:?}", e))
-        .with_context(|| "could not parse the code")?;
+    let syn::File { attrs, .. } = syn::parse_file(code).map_err(|e| {
+        let start = e.span().start();
+        anyhow!("line {}, column {}: {}", start.line, start.column, e)
+    })?;
 
     Ok(attrs
         .iter()
@@ -332,8 +333,16 @@ impl<'opt> CodeEdit<'opt> {
             let content = cargo_util::paths::read(src_path.as_ref())?;
 
             let syn::File { items, .. } = syn::parse_file(&content)
-                .map_err(|e| anyhow!("{:?}", e))
-                .with_context(|| format!("could not parse `{}`", src_path))?;
+                .map_err(|e| {
+                    let start = e.span().start();
+                    anyhow!(
+                        "could not parse `{}` (line {}, column {}): {}",
+                        src_path,
+                        start.line,
+                        start.column,
+                        e,
+                    )
+                })?;
 
             let replacements = items
                 .into_iter()
@@ -1657,7 +1666,7 @@ impl<'opt> CodeEdit<'opt> {
             .collect::<Vec<_>>();
 
         visit_file(&mut erase, token_stream)
-            .map_err(|e| anyhow!("{:?}", e))
+            .map_err(|e| anyhow!("{}", e))
             .with_context(err_msg)?;
 
         let mut acc = "".to_owned();
