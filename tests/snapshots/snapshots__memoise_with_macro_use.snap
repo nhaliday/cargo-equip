@@ -54,7 +54,7 @@ fn fib(n: i64) -> i64 {
 
 ///  # Procedural macros
 /// 
-///  - `memoise 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `BSD-3-Clause`
+///  - `registry+https://github.com/rust-lang/crates.io-index#memoise@0.3.2` licensed under `BSD-3-Clause`
 #[cfg_attr(any(), rustfmt::skip)]
 #[allow(unused)]
 mod __cargo_equip {
@@ -72,4 +72,3 @@ mod __cargo_equip {
         pub mod memoise {}
     }
 }
-

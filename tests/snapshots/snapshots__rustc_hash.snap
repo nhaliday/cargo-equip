@@ -14,11 +14,11 @@ fn main() {
 
 ///  # Bundled libraries
 /// 
-///  - `rustc-hash 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `Apache-2.0/MIT` as `crate::__cargo_equip::crates::rustc_hash`
+///  - `registry+https://github.com/rust-lang/crates.io-index#rustc-hash@1.1.0` licensed under `Apache-2.0/MIT` as `crate::__cargo_equip::crates::rustc_hash`
 /// 
 ///  # License and Copyright Notices
 /// 
-///  - `rustc-hash 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)`
+///  - `registry+https://github.com/rust-lang/crates.io-index#rustc-hash@1.1.0`
 /// 
 ///      ```text
 ///      Permission is hereby granted, free of charge, to any
@@ -62,4 +62,3 @@ mod __cargo_equip {
         pub mod rustc_hash {}
     }
 }
-

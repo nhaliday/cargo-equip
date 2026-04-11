@@ -20,11 +20,11 @@ lazy_static! {
 
 ///  # Bundled libraries
 /// 
-///  - `lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::lazy_static`
+///  - `registry+https://github.com/rust-lang/crates.io-index#lazy_static@1.4.0` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::lazy_static`
 /// 
 ///  # License and Copyright Notices
 /// 
-///  - `lazy_static 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)`
+///  - `registry+https://github.com/rust-lang/crates.io-index#lazy_static@1.4.0`
 /// 
 ///      ```text
 ///      Copyright (c) 2010 The Rust Project Developers
@@ -70,4 +70,3 @@ mod __cargo_equip {
         pub mod lazy_static {pub(in crate::__cargo_equip)use crate::__cargo_equip::macros::lazy_static::*;}
     }
 }
-

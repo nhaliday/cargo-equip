@@ -14,11 +14,11 @@ fn main() {
 
 ///  # Bundled libraries
 /// 
-///  - `fixedbitset 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::fixedbitset`
+///  - `registry+https://github.com/rust-lang/crates.io-index#fixedbitset@0.4.0` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::fixedbitset`
 /// 
 ///  # License and Copyright Notices
 /// 
-///  - `fixedbitset 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)`
+///  - `registry+https://github.com/rust-lang/crates.io-index#fixedbitset@0.4.0`
 /// 
 ///      ```text
 ///      Copyright (c) 2015-2017
@@ -64,4 +64,3 @@ mod __cargo_equip {
         pub mod fixedbitset {}
     }
 }
-

@@ -14,11 +14,11 @@ fn main() {
 
 ///  # Bundled libraries
 /// 
-///  - `whiteread 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT` as `crate::__cargo_equip::crates::whiteread`
+///  - `registry+https://github.com/rust-lang/crates.io-index#whiteread@0.5.0` licensed under `MIT` as `crate::__cargo_equip::crates::whiteread`
 /// 
 ///  # License and Copyright Notices
 /// 
-///  - `whiteread 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)`
+///  - `registry+https://github.com/rust-lang/crates.io-index#whiteread@0.5.0`
 /// 
 ///      ```text
 ///      The MIT non-military non-spy License (MIT)
@@ -67,4 +67,3 @@ mod __cargo_equip {
         pub mod whiteread {}
     }
 }
-

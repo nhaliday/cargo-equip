@@ -20,11 +20,11 @@ fn main() {
 
 ///  # Bundled libraries
 /// 
-///  - `maplit 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::maplit`
+///  - `registry+https://github.com/rust-lang/crates.io-index#maplit@1.0.2` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::maplit`
 /// 
 ///  # License and Copyright Notices
 /// 
-///  - `maplit 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)`
+///  - `registry+https://github.com/rust-lang/crates.io-index#maplit@1.0.2`
 /// 
 ///      ```text
 ///      Copyright (c) 2015
@@ -70,4 +70,3 @@ mod __cargo_equip {
         pub mod maplit {pub(in crate::__cargo_equip)use crate::__cargo_equip::macros::maplit::*;}
     }
 }
-

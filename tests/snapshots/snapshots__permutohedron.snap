@@ -12,11 +12,11 @@ fn main() {
 
 ///  # Bundled libraries
 /// 
-///  - `permutohedron 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::permutohedron`
+///  - `registry+https://github.com/rust-lang/crates.io-index#permutohedron@0.2.4` licensed under `MIT/Apache-2.0` as `crate::__cargo_equip::crates::permutohedron`
 /// 
 ///  # License and Copyright Notices
 /// 
-///  - `permutohedron 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)`
+///  - `registry+https://github.com/rust-lang/crates.io-index#permutohedron@0.2.4`
 /// 
 ///      ```text
 ///      Copyright (c) 2015-2017 Ulrik Sverdrup "bluss"
@@ -62,4 +62,3 @@ mod __cargo_equip {
         pub mod permutohedron {}
     }
 }
-

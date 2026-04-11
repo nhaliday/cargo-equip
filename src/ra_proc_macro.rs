@@ -4,13 +4,28 @@ use itertools::chain;
 use maplit::btreemap;
 use ra_ap_paths::AbsPath;
 use ra_ap_proc_macro_api::{
-    msg::PanicMessage, MacroDylib, ProcMacro, ProcMacroKind, ProcMacroServer,
+    legacy_protocol::msg::PanicMessage, MacroDylib, ProcMacro, ProcMacroClient, ProcMacroKind,
 };
-use ra_ap_tt::{self as tt, DelimiterKind, Leaf, TokenId};
+use ra_ap_span::{
+    Edition, EditionedFileId, ErasedFileAstId, Span, SpanAnchor, SpanData, SyntaxContext, TextSize,
+};
+use ra_ap_tt::{self as tt, DelimiterKind, Leaf, TopSubtree, TopSubtreeBuilder};
 use semver::Version;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const MSRV: Version = Version::new(1, 64, 0);
+
+fn dummy_span() -> Span {
+    let file_id = ra_ap_span::FileId::from_raw(0);
+    SpanData {
+        range: ra_ap_span::TextRange::new(TextSize::from(0), TextSize::from(0)),
+        anchor: SpanAnchor {
+            file_id: EditionedFileId::new(file_id, Edition::CURRENT),
+            ast_id: ErasedFileAstId::from_raw(0),
+        },
+        ctx: SyntaxContext::root(Edition::CURRENT),
+    }
+}
 
 pub(crate) fn list_proc_macro_dylibs<P: FnMut(&cm::PackageId) -> bool>(
     cargo_messages: &[cm::Message],
@@ -49,7 +64,10 @@ impl<'msg> ProcMacroExpander<'msg> {
         proc_macro_srv_exe: &AbsPath,
         dylib_paths: &BTreeMap<&'msg cm::PackageId, &'msg AbsPath>,
     ) -> anyhow::Result<Self> {
-        let server = ProcMacroServer::spawn(proc_macro_srv_exe.to_path_buf())?;
+        let server = ProcMacroClient::spawn(
+            proc_macro_srv_exe,
+            std::iter::empty::<(std::ffi::OsString, &Option<std::ffi::OsString>)>(),
+        )?;
 
         let mut custom_derive = btreemap!();
         let mut func_like = btreemap!();
@@ -64,7 +82,7 @@ impl<'msg> ProcMacroExpander<'msg> {
             for proc_macro in proc_macros {
                 match proc_macro.kind() {
                     ProcMacroKind::CustomDerive => &mut custom_derive,
-                    ProcMacroKind::FuncLike => &mut func_like,
+                    ProcMacroKind::Bang => &mut func_like,
                     ProcMacroKind::Attr => &mut attr,
                 }
                 .insert(proc_macro.name().to_owned(), (package_id, proc_macro));
@@ -101,7 +119,7 @@ impl<'msg> ProcMacroExpander<'msg> {
         name: &str,
         body: impl FnOnce() -> proc_macro2::TokenStream,
     ) -> anyhow::Result<Option<proc_macro2::Group>> {
-        self.attempt_expand(name, ProcMacroKind::FuncLike, body, None::<fn() -> _>)
+        self.attempt_expand(name, ProcMacroKind::Bang, body, None::<fn() -> _>)
     }
 
     pub(crate) fn attempt_expand_attr(
@@ -122,137 +140,191 @@ impl<'msg> ProcMacroExpander<'msg> {
     ) -> anyhow::Result<Option<proc_macro2::Group>> {
         match kind {
             ProcMacroKind::CustomDerive => &self.custom_derive,
-            ProcMacroKind::FuncLike => &self.func_like,
+            ProcMacroKind::Bang => &self.func_like,
             ProcMacroKind::Attr => &self.attr,
         }
         .get(name)
         .map(|(_, proc_macro)| {
+            let body = from_proc_macro2_group(&proc_macro2::Group::new(
+                proc_macro2::Delimiter::None,
+                subtree(),
+            ));
+            let attr_tree = attr.map(|f| from_proc_macro2_group(&f()));
+            let span = dummy_span();
             let output = &proc_macro
                 .expand(
-                    &from_proc_macro2_group(&proc_macro2::Group::new(
-                        proc_macro2::Delimiter::None,
-                        subtree(),
-                    )),
-                    attr.map(|f| from_proc_macro2_group(&f())).as_ref(),
+                    body.view(),
+                    attr_tree.as_ref().map(|a| a.view()),
                     vec![],
+                    span,
+                    span,
+                    span,
+                    String::new(),
                 )
                 .map_err(|e| anyhow!("{}", e))
                 .with_context(|| "rust-analyzer error")?
                 .map_err(|PanicMessage(s)| anyhow!("proc macro paniced: {s:?}"))?;
-            Ok(from_ra_subtree(output))
+            Ok(from_ra_top_subtree(output))
         })
         .transpose()
     }
 }
 
-fn from_proc_macro2_group(group: &proc_macro2::Group) -> tt::Subtree<TokenId> {
-    return tt::Subtree {
-        delimiter: from_proc_macro2_delimiter(group.delimiter()),
-        token_trees: group
-            .stream()
-            .into_iter()
-            .map(|tt| from_proc_macro2_token_tree(&tt))
-            .collect(),
-    };
-
-    fn from_proc_macro2_delimiter(delimiter: proc_macro2::Delimiter) -> tt::Delimiter<TokenId> {
-        tt::Delimiter {
-            open: TokenId::unspecified(),
-            close: TokenId::unspecified(),
-            kind: match delimiter {
-                proc_macro2::Delimiter::Parenthesis => DelimiterKind::Parenthesis,
-                proc_macro2::Delimiter::Brace => DelimiterKind::Brace,
-                proc_macro2::Delimiter::Bracket => DelimiterKind::Bracket,
-                proc_macro2::Delimiter::None => DelimiterKind::Invisible,
-            },
-        }
+fn from_proc_macro2_group(group: &proc_macro2::Group) -> TopSubtree<Span> {
+    let span = dummy_span();
+    let delimiter = from_proc_macro2_delimiter(group.delimiter(), span);
+    let mut builder = TopSubtreeBuilder::new(delimiter);
+    for tt in group.stream() {
+        add_token_tree(&mut builder, &tt, span);
     }
+    builder.build()
+}
 
-    fn from_proc_macro2_token_tree(tt: &proc_macro2::TokenTree) -> tt::TokenTree<TokenId> {
-        match tt {
-            proc_macro2::TokenTree::Group(g) => from_proc_macro2_group(g).into(),
-            proc_macro2::TokenTree::Ident(i) => Leaf::from(from_proc_macro2_ident(i)).into(),
-            proc_macro2::TokenTree::Punct(p) => Leaf::from(from_proc_macro2_punct(p)).into(),
-            proc_macro2::TokenTree::Literal(l) => Leaf::from(from_proc_macro2_literal(l)).into(),
+fn add_token_tree(builder: &mut TopSubtreeBuilder<Span>, tt: &proc_macro2::TokenTree, span: Span) {
+    match tt {
+        proc_macro2::TokenTree::Group(g) => {
+            let kind = from_proc_macro2_delimiter(g.delimiter(), span).kind;
+            builder.open(kind, span);
+            for child in g.stream() {
+                add_token_tree(builder, &child, span);
+            }
+            builder.close(span);
         }
-    }
-
-    fn from_proc_macro2_ident(ident: &proc_macro2::Ident) -> tt::Ident<TokenId> {
-        tt::Ident {
-            text: ident.to_string().into(),
-            span: TokenId::unspecified(),
+        proc_macro2::TokenTree::Ident(i) => {
+            builder.push(Leaf::from(tt::Ident::new(&i.to_string(), span)));
         }
-    }
-
-    fn from_proc_macro2_punct(punct: &proc_macro2::Punct) -> tt::Punct<TokenId> {
-        tt::Punct {
-            char: punct.as_char(),
-            spacing: from_proc_macro2_spacing(punct.spacing()),
-            span: TokenId::unspecified(),
+        proc_macro2::TokenTree::Punct(p) => {
+            builder.push(Leaf::from(tt::Punct {
+                char: p.as_char(),
+                spacing: match p.spacing() {
+                    proc_macro2::Spacing::Alone => tt::Spacing::Alone,
+                    proc_macro2::Spacing::Joint => tt::Spacing::Joint,
+                },
+                span,
+            }));
         }
-    }
-
-    fn from_proc_macro2_spacing(spacing: proc_macro2::Spacing) -> tt::Spacing {
-        match spacing {
-            proc_macro2::Spacing::Alone => tt::Spacing::Alone,
-            proc_macro2::Spacing::Joint => tt::Spacing::Joint,
-        }
-    }
-
-    fn from_proc_macro2_literal(lit: &proc_macro2::Literal) -> tt::Literal<TokenId> {
-        tt::Literal {
-            text: lit.to_string().into(),
-            span: TokenId::unspecified(),
+        proc_macro2::TokenTree::Literal(l) => {
+            builder.push(Leaf::from(tt::token_to_literal(&l.to_string(), span)));
         }
     }
 }
 
-fn from_ra_subtree(subtree: &tt::Subtree<impl Copy>) -> proc_macro2::Group {
-    return proc_macro2::Group::new(
-        from_ra_delimiter(subtree.delimiter),
-        subtree.token_trees.iter().map(from_ra_token_tree).collect(),
-    );
+fn from_proc_macro2_delimiter(
+    delimiter: proc_macro2::Delimiter,
+    span: Span,
+) -> tt::Delimiter<Span> {
+    tt::Delimiter {
+        open: span,
+        close: span,
+        kind: match delimiter {
+            proc_macro2::Delimiter::Parenthesis => DelimiterKind::Parenthesis,
+            proc_macro2::Delimiter::Brace => DelimiterKind::Brace,
+            proc_macro2::Delimiter::Bracket => DelimiterKind::Bracket,
+            proc_macro2::Delimiter::None => DelimiterKind::Invisible,
+        },
+    }
+}
 
-    fn from_ra_delimiter(delimiter: tt::Delimiter<impl Copy>) -> proc_macro2::Delimiter {
-        match delimiter.kind {
-            DelimiterKind::Parenthesis => proc_macro2::Delimiter::Parenthesis,
-            DelimiterKind::Brace => proc_macro2::Delimiter::Brace,
-            DelimiterKind::Bracket => proc_macro2::Delimiter::Bracket,
-            DelimiterKind::Invisible => proc_macro2::Delimiter::None,
+fn from_ra_top_subtree(top_subtree: &TopSubtree<Span>) -> proc_macro2::Group {
+    let view = top_subtree.view();
+    let delimiter = from_ra_delimiter(view.top_subtree().delimiter);
+    let stream: proc_macro2::TokenStream = view
+        .iter()
+        .map(|element| match element {
+            tt::iter::TtElement::Subtree(s, iter) => {
+                let inner: proc_macro2::TokenStream =
+                    iter.map(from_ra_tt_element).collect();
+                proc_macro2::TokenTree::Group(proc_macro2::Group::new(
+                    from_ra_delimiter(s.delimiter),
+                    inner,
+                ))
+            }
+            tt::iter::TtElement::Leaf(leaf) => from_ra_leaf(leaf),
+        })
+        .collect();
+    proc_macro2::Group::new(delimiter, stream)
+}
+
+fn from_ra_tt_element(element: tt::iter::TtElement<'_, Span>) -> proc_macro2::TokenTree {
+    match element {
+        tt::iter::TtElement::Subtree(s, iter) => {
+            let inner: proc_macro2::TokenStream =
+                iter.map(from_ra_tt_element).collect();
+            proc_macro2::TokenTree::Group(proc_macro2::Group::new(
+                from_ra_delimiter(s.delimiter),
+                inner,
+            ))
         }
+        tt::iter::TtElement::Leaf(leaf) => from_ra_leaf(leaf),
     }
+}
 
-    fn from_ra_token_tree(tt: &tt::TokenTree<impl Copy>) -> proc_macro2::TokenTree {
-        match tt {
-            tt::TokenTree::Subtree(s) => proc_macro2::TokenTree::Group(from_ra_subtree(s)),
-            tt::TokenTree::Leaf(Leaf::Ident(i)) => from_ra_ident(i).into(),
-            &tt::TokenTree::Leaf(Leaf::Punct(p)) => from_ra_punct(p).into(),
-            tt::TokenTree::Leaf(Leaf::Literal(l)) => from_ra_literal(l).into(),
+fn from_ra_delimiter(delimiter: tt::Delimiter<Span>) -> proc_macro2::Delimiter {
+    match delimiter.kind {
+        DelimiterKind::Parenthesis => proc_macro2::Delimiter::Parenthesis,
+        DelimiterKind::Brace => proc_macro2::Delimiter::Brace,
+        DelimiterKind::Bracket => proc_macro2::Delimiter::Bracket,
+        DelimiterKind::Invisible => proc_macro2::Delimiter::None,
+    }
+}
+
+fn from_ra_leaf(leaf: &Leaf<Span>) -> proc_macro2::TokenTree {
+    match leaf {
+        Leaf::Ident(i) => from_ra_ident(i).into(),
+        &Leaf::Punct(p) => from_ra_punct(p).into(),
+        Leaf::Literal(l) => from_ra_literal(l).into(),
+    }
+}
+
+fn from_ra_ident(ident: &tt::Ident<Span>) -> proc_macro2::Ident {
+    let name = ident.sym.as_str();
+    if ident.is_raw.yes() {
+        proc_macro2::Ident::new_raw(name, proc_macro2::Span::call_site())
+    } else {
+        proc_macro2::Ident::new(name, proc_macro2::Span::call_site())
+    }
+}
+
+fn from_ra_punct(punct: tt::Punct<Span>) -> proc_macro2::Punct {
+    let spacing = match punct.spacing {
+        tt::Spacing::Alone => proc_macro2::Spacing::Alone,
+        tt::Spacing::Joint | tt::Spacing::JointHidden => proc_macro2::Spacing::Joint,
+    };
+    proc_macro2::Punct::new(punct.char, spacing)
+}
+
+fn from_ra_literal(lit: &tt::Literal<Span>) -> proc_macro2::Literal {
+    let text = reconstruct_literal_text(lit);
+    syn::parse_str(&text)
+        .unwrap_or_else(|e| panic!("could not reconstruct literal from {:?}: {}", text, e))
+}
+
+fn reconstruct_literal_text(lit: &tt::Literal<Span>) -> String {
+    let sym = lit.symbol.as_str();
+    let core = match lit.kind {
+        tt::LitKind::Str => format!("\"{}\"", sym),
+        tt::LitKind::ByteStr => format!("b\"{}\"", sym),
+        tt::LitKind::Char => format!("'{}'", sym),
+        tt::LitKind::Byte => format!("b'{}'", sym),
+        tt::LitKind::Integer | tt::LitKind::Float => sym.to_owned(),
+        tt::LitKind::StrRaw(n) => {
+            let hashes: String = std::iter::repeat('#').take(n as usize).collect();
+            format!("r{hashes}\"{sym}\"{hashes}")
         }
-    }
-
-    fn from_ra_ident(ident: &tt::Ident<impl Copy>) -> proc_macro2::Ident {
-        if let Some(name) = ident.text.strip_prefix("r#") {
-            proc_macro2::Ident::new_raw(name, proc_macro2::Span::call_site())
-        } else {
-            proc_macro2::Ident::new(&ident.text, proc_macro2::Span::call_site())
+        tt::LitKind::ByteStrRaw(n) => {
+            let hashes: String = std::iter::repeat('#').take(n as usize).collect();
+            format!("br{hashes}\"{sym}\"{hashes}")
         }
-    }
-
-    fn from_ra_punct(punct: tt::Punct<impl Copy>) -> proc_macro2::Punct {
-        proc_macro2::Punct::new(punct.char, from_ra_spacing(punct.spacing))
-    }
-
-    fn from_ra_spacing(spacing: tt::Spacing) -> proc_macro2::Spacing {
-        match spacing {
-            tt::Spacing::Alone => proc_macro2::Spacing::Alone,
-            tt::Spacing::Joint => proc_macro2::Spacing::Joint,
+        tt::LitKind::CStr => format!("c\"{sym}\""),
+        tt::LitKind::CStrRaw(n) => {
+            let hashes: String = std::iter::repeat('#').take(n as usize).collect();
+            format!("cr{hashes}\"{sym}\"{hashes}")
         }
-    }
-
-    fn from_ra_literal(lit: &tt::Literal<impl Copy>) -> proc_macro2::Literal {
-        syn::parse_str(&lit.text)
-            .unwrap_or_else(|e| panic!("could not parse {:?} as a literal: {}", &lit.text, e))
+        tt::LitKind::Err(_) => sym.to_owned(),
+    };
+    match &lit.suffix {
+        Some(suffix) => format!("{}{}", core, suffix.as_str()),
+        None => core,
     }
 }
 
@@ -264,7 +336,7 @@ mod tests {
     fn roundtrip(input: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
         let group = proc_macro2::Group::new(proc_macro2::Delimiter::None, input);
         let ra = from_proc_macro2_group(&group);
-        let output = from_ra_subtree(&ra);
+        let output = from_ra_top_subtree(&ra);
         output.stream()
     }
 
@@ -409,7 +481,8 @@ mod tests {
                         .get("target")
                         .and_then(|t| t.get("name"))
                         .and_then(|n| n.as_str())
-                        == Some("proconio-derive")
+                        .map(|n| n == "proconio-derive" || n == "proconio_derive")
+                        == Some(true)
                 {
                     if let Some(filenames) = msg.get("filenames").and_then(|f| f.as_array()) {
                         if let Some(path) = filenames.first().and_then(|f| f.as_str()) {
@@ -435,8 +508,9 @@ mod tests {
     fn make_expander() -> ProcMacroExpander<'static> {
         // Leak to get 'static lifetime for the test PackageId and AbsPath
         let dylib_path = build_and_find_proconio_derive_dylib();
-        let abs_dylib: &'static AbsPath =
-            AbsPath::assert(Box::leak(dylib_path.into_boxed_path()));
+        let abs_dylib: &'static AbsPath = AbsPath::assert(
+            camino::Utf8Path::from_path(Box::leak(dylib_path.into_boxed_path())).unwrap(),
+        );
         let package_id: &'static cm::PackageId = Box::leak(Box::new(cm::PackageId {
             repr: "proconio-derive 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)"
                 .to_owned(),

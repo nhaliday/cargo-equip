@@ -12,11 +12,11 @@ fn main() {
 
 ///  # Bundled libraries
 /// 
-///  - `strsim 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT` as `crate::__cargo_equip::crates::strsim`
+///  - `registry+https://github.com/rust-lang/crates.io-index#strsim@0.10.0` licensed under `MIT` as `crate::__cargo_equip::crates::strsim`
 /// 
 ///  # License and Copyright Notices
 /// 
-///  - `strsim 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)`
+///  - `registry+https://github.com/rust-lang/crates.io-index#strsim@0.10.0`
 /// 
 ///      ```text
 ///      The MIT License (MIT)
@@ -60,4 +60,3 @@ mod __cargo_equip {
         pub mod strsim {}
     }
 }
-
