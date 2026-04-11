@@ -24,6 +24,34 @@ Use the `CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN` env var in CI to pin a speci
 
 The bundling pipeline already runs `cargo check` on the output during tests. Consider also verifying that the snapshot `.snap` files themselves contain compilable Rust code, as a guard against snapshot staleness.
 
+### Expand snapshot test coverage for syn 2.x upgrade
+
+The existing snapshot tests exercise the main bundling paths but miss some syn-dependent code paths. Adding targeted test bins in `tests/solutions/src/bin/` would improve confidence for a syn 2.x migration:
+
+- `#[cfg(...)]` in user bin code (exercises cfg resolution attribute parsing)
+- Doc comments and `#[doc]` attributes in user code (exercises `erase_docs` beyond its small unit test)
+- Nested modules with `#[path = "..."]` attributes (exercises `expand_mods` path parsing)
+- Complex `#[cfg_attr(...)]` nesting
+
+These are characterization tests: capture current behavior before the upgrade, then verify it doesn't change.
+
+### Extract attribute-matching helpers in `rust.rs`
+
+The `Attribute::parse_meta()` + match pattern repeats 9 times in `rust.rs`. This is the API that changes most in syn 2.x (`parse_meta()` is removed, `NestedMeta` is gone, `Meta::List` contains a `TokenStream` instead of `Punctuated<NestedMeta>`).
+
+Extracting helpers like `is_macro_use(attr) -> bool`, `derive_names(attr) -> Vec<String>`, `is_doc(attr) -> bool` would:
+- Make each helper independently unit-testable
+- Isolate the syn API surface so the upgrade touches helpers only, not call sites
+- Reduce the blast radius of the `parse_meta` removal
+
+High-value pre-upgrade refactoring: directly isolates the syn API surface that changes most.
+
+### Extract `CodeEdit` transformations into pure functions
+
+Methods like `resolve_cfgs`, `process_extern_crate_in_bin`, `erase_docs` mutate `CodeEdit` internal state, making them testable only through the full pipeline. Extracting core logic into `fn(&str, ...) -> Result<String>` functions would allow direct unit testing of each transformation in isolation. This is the "Sprout Method" / "Extract and Override" pattern from *Working Effectively with Legacy Code*.
+
+High-value pre-upgrade refactoring: cfg resolution and path rewriting are the most complex logic in `rust.rs`.
+
 ### Test coverage reporting
 
 Add coverage reporting via `cargo-llvm-cov` or `cargo-tarpaulin`. The snapshot tests call `cargo_equip::run()` as a library function (not a subprocess), so cargo-equip's own code is instrumented normally — no special setup needed beyond what works for unit tests.
