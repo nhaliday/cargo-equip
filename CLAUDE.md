@@ -8,28 +8,26 @@ cargo-equip is a Cargo subcommand that bundles code from multiple Rust library c
 
 ## Build and test
 
-The repo has a directory-level rustup override to `nightly-2023-08-04`, but building and testing requires stable:
+The CI workflow references `nightly-2023-08-04` but is out-of-date. Use a recent stable or nightly toolchain instead:
 
 ```bash
 # Build
-rustup run stable cargo build
+cargo build
 
 # Run all tests (must be single-threaded for test isolation)
-CARGO_EQUIP_TEST_NIGHTLY_TOOLCHAIN=nightly-2023-08-04 \
-  rustup run stable cargo test --no-fail-fast -- --test-threads 1
+cargo test --no-fail-fast -- --test-threads 1
 
 # Run a single test
-rustup run stable cargo test <test_name> -- --test-threads 1
+cargo test <test_name> -- --test-threads 1
 
 # Lint
-rustup run stable cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets -- -D warnings
 
 # Format check
 cargo fmt --all -- --check
 
 # Update snapshots (uses insta)
-CARGO_EQUIP_TEST_NIGHTLY_TOOLCHAIN=nightly-2023-08-04 \
-  INSTA_UPDATE=always rustup run stable cargo test -- --test-threads 1
+INSTA_UPDATE=always cargo test -- --test-threads 1
 cargo insta review
 ```
 
@@ -37,7 +35,7 @@ Use `--manifest-path Cargo.toml` if cargo resolves to the wrong workspace (e.g.,
 
 ### Environment variables
 
-- `CARGO_EQUIP_TEST_NIGHTLY_TOOLCHAIN` — nightly toolchain for cargo-udeps (default: `"nightly"`; CI uses `nightly-2023-08-04`)
+- `CARGO_EQUIP_TEST_NIGHTLY_TOOLCHAIN` — nightly toolchain for cargo-udeps (default: `"nightly"`)
 - `CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN` — toolchain whose `rust-analyzer-proc-macro-srv` binary is used for proc macro expansion tests
 
 ## Architecture
