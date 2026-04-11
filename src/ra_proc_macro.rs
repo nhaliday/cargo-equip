@@ -359,4 +359,160 @@ mod tests {
         let raw_bstr: proc_macro2::TokenStream = r###"br#"hello "bytes""#"###.parse().unwrap();
         assert_roundtrip(raw_bstr);
     }
+
+    // --- Expansion integration tests ---
+
+    static BUILD_LOCK: once_cell::sync::Lazy<std::sync::Mutex<()>> =
+        once_cell::sync::Lazy::new(|| std::sync::Mutex::new(()));
+
+    fn proc_macro_srv_toolchain() -> String {
+        std::env::var("CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN")
+            .unwrap_or_else(|_| "nightly".to_owned())
+    }
+
+    fn solutions_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("solutions")
+    }
+
+    /// Build test solutions and return the path to the proconio-derive dylib.
+    fn build_and_find_proconio_derive_dylib() -> std::path::PathBuf {
+        let _lock = BUILD_LOCK.lock().unwrap();
+        let toolchain = proc_macro_srv_toolchain();
+        let solutions = solutions_dir();
+
+        let output = std::process::Command::new("rustup")
+            .args(&["run", &toolchain, "cargo", "build", "--message-format=json"])
+            .current_dir(&solutions)
+            .output()
+            .expect("failed to run cargo build");
+
+        assert!(
+            output.status.success(),
+            "cargo build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        for line in stdout.lines() {
+            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) {
+                if msg.get("reason").and_then(|r| r.as_str()) == Some("compiler-artifact")
+                    && msg
+                        .get("target")
+                        .and_then(|t| t.get("kind"))
+                        .and_then(|k| k.as_array())
+                        .map_or(false, |kinds| {
+                            kinds.iter().any(|k| k.as_str() == Some("proc-macro"))
+                        })
+                    && msg
+                        .get("target")
+                        .and_then(|t| t.get("name"))
+                        .and_then(|n| n.as_str())
+                        == Some("proconio-derive")
+                {
+                    if let Some(filenames) = msg.get("filenames").and_then(|f| f.as_array()) {
+                        if let Some(path) = filenames.first().and_then(|f| f.as_str()) {
+                            return std::path::PathBuf::from(path);
+                        }
+                    }
+                }
+            }
+        }
+        panic!("could not find proconio-derive dylib in cargo build output");
+    }
+
+    fn find_proc_macro_srv() -> ra_ap_paths::AbsPathBuf {
+        let toolchain = proc_macro_srv_toolchain();
+        let solutions = solutions_dir();
+        crate::toolchain::find_rust_analyzer_proc_macro_srv(
+            camino::Utf8Path::from_path(solutions.as_ref()).unwrap(),
+            &toolchain,
+        )
+        .expect("could not find rust-analyzer-proc-macro-srv")
+    }
+
+    fn make_expander() -> ProcMacroExpander<'static> {
+        // Leak to get 'static lifetime for the test PackageId and AbsPath
+        let dylib_path = build_and_find_proconio_derive_dylib();
+        let abs_dylib: &'static AbsPath =
+            AbsPath::assert(Box::leak(dylib_path.into_boxed_path()));
+        let package_id: &'static cm::PackageId = Box::leak(Box::new(cm::PackageId {
+            repr: "proconio-derive 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)"
+                .to_owned(),
+        }));
+
+        let srv = find_proc_macro_srv();
+        let mut dylib_paths = BTreeMap::new();
+        dylib_paths.insert(package_id, abs_dylib);
+
+        ProcMacroExpander::spawn(srv.as_ref(), &dylib_paths)
+            .expect("failed to spawn ProcMacroExpander")
+    }
+
+    #[test]
+    fn expand_fastout_attr() {
+        let mut expander = make_expander();
+
+        let result = expander
+            .attempt_expand_attr(
+                "fastout",
+                || {
+                    quote! {
+                        fn main() {
+                            println!("hello");
+                        }
+                    }
+                },
+                || {
+                    // Match how cargo-equip passes attrs: invisible delimiter, empty stream
+                    // for attributes with no arguments like #[fastout]
+                    proc_macro2::Group::new(
+                        proc_macro2::Delimiter::None,
+                        proc_macro2::TokenStream::new(),
+                    )
+                },
+            )
+            .expect("expansion failed");
+
+        let expanded = result.expect("fastout should be a known attr macro");
+        let code = expanded.stream().to_string();
+        // fastout wraps the body in a BufWriter for fast stdout
+        assert!(
+            code.contains("BufWriter"),
+            "expected fastout to produce BufWriter, got: {}",
+            code
+        );
+    }
+
+    #[test]
+    fn expand_unknown_macro_returns_none() {
+        let mut expander = make_expander();
+
+        let result = expander
+            .attempt_expand_func_like("nonexistent_macro", || quote! { foo })
+            .expect("should not error");
+
+        assert!(result.is_none(), "unknown macro should return None");
+    }
+
+    #[test]
+    fn expander_lists_proconio_macros() {
+        let expander = make_expander();
+        let all_names: BTreeSet<&str> = expander
+            .macro_names()
+            .flat_map(|(_, names)| names)
+            .collect();
+
+        assert!(
+            all_names.contains("fastout"),
+            "expected fastout in macro names, got: {:?}",
+            all_names
+        );
+        assert!(
+            all_names.contains("derive_readable"),
+            "expected derive_readable in macro names, got: {:?}",
+            all_names
+        );
+    }
 }
