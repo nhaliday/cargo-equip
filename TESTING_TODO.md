@@ -26,12 +26,22 @@ The bundling pipeline already runs `cargo check` on the output during tests. Con
 
 ### Expand snapshot test coverage for syn 2.x upgrade
 
-The existing snapshot tests exercise the main bundling paths but miss some syn-dependent code paths. Adding targeted test bins in `tests/solutions/src/bin/` would improve confidence for a syn 2.x migration:
+Coverage analysis (`cargo llvm-cov --html`) shows the existing snapshot tests exercise more of `rust.rs` than expected — the bundled library crates contain enough `#[cfg]`, `#[derive]`, `#[doc]`, and `#[warn/deny]` attributes to hit most `parse_meta` call sites. Key findings:
 
-- `#[cfg(...)]` in user bin code (exercises cfg resolution attribute parsing)
-- Doc comments and `#[doc]` attributes in user code (exercises `erase_docs` beyond its small unit test)
-- Nested modules with `#[path = "..."]` attributes (exercises `expand_mods` path parsing)
-- Complex `#[cfg_attr(...)]` nesting
+**Well-covered by existing snapshots:**
+- `resolve_cfgs` — `proceed()` hit 14.4k times, `#[cfg(feature)]` (76 hits), `#[cfg(test)]` (18 hits), both remove-item and remove-attr branches exercised
+- `translate_crate_path` — `visit_path` 14.3k hits, `visit_item_use` 268 hits
+- `process_extern_crate_in_bin` — `macro_use` detection covered (6 hits)
+- `allow_missing_docs` — `parse_meta` for warn/deny/forbid 243 hits, `missing_docs` replacement 4 hits
+- `erase_docs` — 19 hits (snapshot + unit tests)
+
+**Gaps worth filling with new test bins:**
+- `#[cfg_attr(cargo_equip, cargo_equip::skip)]` detection (0 hits — no test uses the skip attribute)
+- `crate::` path rewriting in library code (0 hits — test crates use `$crate::` or relative paths)
+- Nested inline `mod` blocks in bin code (0 hits for `insert_prelude_for_main_crate` mod handling)
+- `#[cfg(cargo_equip)]` predicate (0 hits)
+
+**Blind spot — macro-generated visitors:** The `impl_visits!` macro blocks generate ~30 `visit_*` methods each, but llvm-cov collapses them into a single source line (e.g., 14.4k aggregate hits for `resolve_cfgs` visitors). Rare AST node types like `ExprTryBlock`, `ExprYield`, `ItemTraitAlias`, `ItemMacro2` are almost certainly never exercised, but this is invisible in the report. Behavioral regressions in these visitors would not be caught. Expanding the macros into explicit methods would give per-method visibility, but the methods all delegate to the same `proceed()` function, so the practical risk is low.
 
 These are characterization tests: capture current behavior before the upgrade, then verify it doesn't change.
 
