@@ -6,6 +6,7 @@
 - **Configurable proc-macro-srv toolchain in tests**: Added `CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN` env var to decouple the proc-macro-srv binary version from the build/udeps toolchain.
 - **Conversion round-trip tests for `ra_proc_macro.rs`**: Test `proc_macro2 -> ra_ap_tt -> proc_macro2` round-trips for known token streams. Tests only construct `proc_macro2` types, so they don't need updating when `ra_ap_tt` types change — breakage surfaces as compile errors in the conversion functions, not the tests.
 - **Expansion integration tests for `ProcMacroExpander`**: Build proconio-derive dylib, spawn `ProcMacroExpander`, and test attr expansion (`fastout`), macro listing, and unknown macro handling in isolation from the full bundling pipeline.
+- **Unit tests for coverage gaps in `rust.rs`**: Lightweight tests using `CodeEdit::from_code` and free functions to exercise previously-uncovered code paths: `#[cfg_attr(cargo_equip, cargo_equip::skip)]` detection (lines 54-67), `crate::` path rewriting in `translate_crate_path` (lines 1087-1088), nested `mod` handling in `insert_prelude_for_main_crate` (lines 175-191), and `#[cfg(cargo_equip)]` predicate in `resolve_cfgs` (line 1424). Confirmed covered via `cargo llvm-cov`.
 
 ## TODO
 
@@ -26,6 +27,8 @@ The bundling pipeline already runs `cargo check` on the output during tests. Con
 
 ### Expand snapshot test coverage for syn 2.x upgrade
 
+These are characterization tests: capture current behavior before the upgrade, then verify it doesn't change.
+
 Coverage analysis (`cargo llvm-cov --html`) shows the existing snapshot tests exercise more of `rust.rs` than expected — the bundled library crates contain enough `#[cfg]`, `#[derive]`, `#[doc]`, and `#[warn/deny]` attributes to hit most `parse_meta` call sites. Key findings:
 
 **Well-covered by existing snapshots:**
@@ -35,15 +38,13 @@ Coverage analysis (`cargo llvm-cov --html`) shows the existing snapshot tests ex
 - `allow_missing_docs` — `parse_meta` for warn/deny/forbid 243 hits, `missing_docs` replacement 4 hits
 - `erase_docs` — 19 hits (snapshot + unit tests)
 
-**Gaps worth filling with new test bins:**
-- `#[cfg_attr(cargo_equip, cargo_equip::skip)]` detection (0 hits — no test uses the skip attribute)
-- `crate::` path rewriting in library code (0 hits — test crates use `$crate::` or relative paths)
-- Nested inline `mod` blocks in bin code (0 hits for `insert_prelude_for_main_crate` mod handling)
-- `#[cfg(cargo_equip)]` predicate (0 hits)
+**Gaps filled by unit tests** (see Done section):
+- `#[cfg_attr(cargo_equip, cargo_equip::skip)]` detection — was 0 hits, now covered
+- `crate::` path rewriting in library code — was 0 hits, now covered
+- Nested inline `mod` blocks in bin code — was 0 hits, now covered
+- `#[cfg(cargo_equip)]` predicate — was 0 hits, now covered
 
 **Blind spot — macro-generated visitors:** The `impl_visits!` macro blocks generate ~30 `visit_*` methods each, but llvm-cov collapses them into a single source line (e.g., 14.4k aggregate hits for `resolve_cfgs` visitors). Rare AST node types like `ExprTryBlock`, `ExprYield`, `ItemTraitAlias`, `ItemMacro2` are almost certainly never exercised, but this is invisible in the report. Behavioral regressions in these visitors would not be caught. Expanding the macros into explicit methods would give per-method visibility, but the methods all delegate to the same `proceed()` function, so the practical risk is low.
-
-These are characterization tests: capture current behavior before the upgrade, then verify it doesn't change.
 
 ### Extract attribute-matching helpers in `rust.rs`
 

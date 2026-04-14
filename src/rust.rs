@@ -1773,10 +1773,102 @@ fn main() {
     let _ = 1 + 1; // ううううう
 }
 "#,
-            r#"fn foo() {
-    let _ = 1 + 1;         
-}
-"#,
+            "fn foo() {\n    let _ = 1 + 1;         \n}\n",
         )
+    }
+
+    #[test]
+    fn find_skip_attribute_with_cfg_attr() -> anyhow::Result<()> {
+        use crate::rust::find_skip_attribute;
+
+        assert!(!find_skip_attribute("fn main() {}")?);
+        assert!(!find_skip_attribute("#![allow(unused)] fn main() {}")?);
+        assert!(find_skip_attribute(
+            "#![cfg_attr(cargo_equip, cargo_equip::skip)] fn main() {}"
+        )?);
+        // Non-cargo_equip predicate should not match
+        assert!(!find_skip_attribute(
+            "#![cfg_attr(feature = \"foo\", cargo_equip::skip)] fn main() {}"
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn translate_crate_path_rewrites_crate_prefix() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let mut edit = CodeEdit::from_code(
+                dummy_mod_name,
+                "pub fn f() -> crate::Foo { crate::bar::baz() }\n",
+            )?;
+            edit.translate_crate_path("my_lib")?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("crate::__::crates::my_lib"),
+                "expected crate path rewrite, got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn insert_prelude_with_nested_mod() -> anyhow::Result<()> {
+        use crate::rust::insert_prelude_for_main_crate;
+
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = r#"mod inner {
+    fn g() {}
+}
+
+fn main() {}
+"#;
+            let result = insert_prelude_for_main_crate(code, dummy_mod_name)?;
+            // Should insert prelude at the crate root
+            assert!(
+                result.contains("pub use __::prelude::*;"),
+                "expected crate-root prelude, got: {}",
+                result
+            );
+            // Should also insert prelude inside the nested mod (with crate:: prefix)
+            assert!(
+                result.contains("pub use crate::__::prelude::*;"),
+                "expected nested mod prelude, got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn resolve_cfgs_cargo_equip_predicate() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = r#"#[cfg(cargo_equip)]
+fn only_when_bundling() {}
+
+#[cfg(not(cargo_equip))]
+fn only_when_not_bundling() {}
+
+fn always() {}
+"#;
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.resolve_cfgs(&[])?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("only_when_bundling"),
+                "cfg(cargo_equip) item should be kept, got: {}",
+                result
+            );
+            assert!(
+                !result.contains("only_when_not_bundling"),
+                "cfg(not(cargo_equip)) item should be removed, got: {}",
+                result
+            );
+            assert!(
+                result.contains("always"),
+                "unconditional item should be kept, got: {}",
+                result
+            );
+            Ok(())
+        })
     }
 }
