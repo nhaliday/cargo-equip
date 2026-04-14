@@ -59,9 +59,36 @@ High-value pre-upgrade refactoring: directly isolates the syn API surface that c
 
 ### Extract `CodeEdit` transformations into pure functions
 
-Methods like `resolve_cfgs`, `process_extern_crate_in_bin`, `erase_docs` mutate `CodeEdit` internal state, making them testable only through the full pipeline. Extracting core logic into `fn(&str, ...) -> Result<String>` functions would allow direct unit testing of each transformation in isolation. This is the "Sprout Method" / "Extract and Override" pattern from *Working Effectively with Legacy Code*.
+Methods like `resolve_cfgs`, `translate_crate_path`, `process_extern_crate_in_bin` mutate `CodeEdit` internal state: they read `self.file` (the parsed AST), write span-based substitutions into `self.replacements`, and rely on `apply()` to flush replacements into `self.string` and re-parse. This makes them testable only through the full pipeline or via `CodeEdit::from_code` (as the new unit tests do).
 
-High-value pre-upgrade refactoring: cfg resolution and path rewriting are the most complex logic in `rust.rs`.
+**Current state (`CodeEdit` fields):**
+- `string: String` — source text, modified by `apply()`
+- `file: syn::File` — parsed AST, re-parsed after each `apply()`
+- `replacements: BTreeMap<(LineColumn, LineColumn), String>` — pending span-based substitutions
+- `cargo_equip_mod_name` / `has_local_inner_macros_attr` — effectively immutable after construction
+
+**Proposed extraction:** The visitor logic in each method only reads `&syn::File` and produces replacements. Extract as pure functions returning the replacement map:
+
+```rust
+type Replacements = BTreeMap<(LineColumn, LineColumn), String>;
+
+fn resolve_cfgs_replacements(file: &syn::File, features: &[String]) -> Replacements;
+fn translate_crate_path_replacements(file: &syn::File, extern_crate_name: &str, cargo_equip_mod_name: &Ident) -> Replacements;
+fn process_extern_crate_in_bin_replacements(file: &syn::File, cargo_equip_mod_name: &Ident, is_lib_to_bundle: impl FnMut(&str) -> bool) -> Replacements;
+```
+
+**Why return replacements instead of `String`:** `CodeEdit` batches replacements from multiple methods before calling `apply()`, which flushes them all and re-parses once. If the extracted functions each did their own parse-visit-apply cycle, you'd re-parse between every step. Returning replacements preserves the batching in production. Tests can either inspect the replacements directly or apply them via `replace_ranges(code, replacements)` to get the output string:
+
+```rust
+let file = syn::parse_file(code).unwrap();
+let replacements = resolve_cfgs_replacements(&file, &["foo".into()]);
+let result = replace_ranges(code, replacements);
+assert_eq!(result, expected);
+```
+
+The `CodeEdit` methods become thin wrappers that merge the returned replacements into `self.replacements`.
+
+This is the "Sprout Method" / "Extract and Override" pattern from *Working Effectively with Legacy Code*. High-value pre-upgrade refactoring: cfg resolution and path rewriting are the most complex logic in `rust.rs`.
 
 ### Test coverage reporting
 
