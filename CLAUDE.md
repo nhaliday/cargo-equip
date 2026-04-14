@@ -46,7 +46,7 @@ Use `--manifest-path Cargo.toml` if cargo resolves to the wrong workspace (e.g.,
 
 Key modules:
 
-- **`rust.rs`** (~1800 lines) — The heart of code transformation. `CodeEdit` struct wraps syn AST and tracks text replacements. Handles extern crate rewriting, `#[macro_use]` expansion, `mod` inlining, cfg resolution, comment/doc stripping. Uses syn 1.x (cannot parse edition 2024 syntax like `const {}` blocks or `if let` chains).
+- **`rust.rs`** (~2300 lines) — The heart of code transformation. `CodeEdit` struct wraps syn AST and tracks text replacements. Handles extern crate rewriting, `#[macro_use]` expansion, `mod` inlining, cfg resolution, comment/doc stripping. Uses syn 2.x.
 - **`ra_proc_macro.rs`** — Proc macro expansion via rust-analyzer's `proc-macro-srv` binary. Converts between `proc_macro2` and `ra_ap_tt` token trees. The `ra_ap_*` crates are pinned to exact versions (`=0.0.288`) because the proc-macro-srv protocol must match.
 - **`workspace.rs`** — Cargo metadata queries, edition handling, temporary workspace creation for `cargo check` validation.
 - **`cargo_udeps.rs`** — Runs `cargo udeps` to determine which dependencies are actually used.
@@ -62,5 +62,5 @@ Key modules:
 ## Key constraints
 
 - The `ra_ap_*` dependency versions must match the `rust-analyzer-proc-macro-srv` binary version from the toolchain. Version mismatches cause protocol errors.
-- `syn` 1.x is used throughout `rust.rs`. Upgrading to syn 2.x would be a large change affecting most of that file.
+- `syn` 2.x is used throughout `rust.rs`. The upgrade from 1.x was done in commit `6475fa6`.
 - Tests that invoke cargo-equip as a binary (snapshot tests) need `--test-threads 1` because they share filesystem state.
