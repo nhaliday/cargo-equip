@@ -81,9 +81,7 @@ fn path_attr_value(attrs: &[Attribute]) -> Option<String> {
             Meta::NameValue(name_value) => Some(name_value),
             _ => None,
         })
-        .filter(|MetaNameValue { path, .. }| {
-            matches!(path.get_ident(), Some(i) if i == "path")
-        })
+        .filter(|MetaNameValue { path, .. }| matches!(path.get_ident(), Some(i) if i == "path"))
         .find_map(|MetaNameValue { lit, .. }| match lit {
             Lit::Str(s) => Some(s.value()),
             _ => None,
@@ -101,17 +99,14 @@ fn cfg_expressions(attrs: &[Attribute]) -> Vec<(Span, cfg_expr::Expression)> {
         })
         .filter(|(_, MetaList { path, .. })| path.is_ident("cfg"))
         .flat_map(|(span, MetaList { nested, .. })| {
-            let expr =
-                cfg_expr::Expression::parse(&nested.to_token_stream().to_string()).ok()?;
+            let expr = cfg_expr::Expression::parse(&nested.to_token_stream().to_string()).ok()?;
             Some((span, expr))
         })
         .collect()
 }
 
 /// Extract derive macro names with their spans and optional trailing comma span.
-fn derive_macro_paths(
-    attrs: &[Attribute],
-) -> Vec<(String, Span, Option<LineColumn>)> {
+fn derive_macro_paths(attrs: &[Attribute]) -> Vec<(String, Span, Option<LineColumn>)> {
     attrs
         .iter()
         .flat_map(Attribute::parse_meta)
@@ -131,9 +126,7 @@ fn derive_macro_paths(
             }
 
             match pair {
-                Pair::Punctuated(m, p) => {
-                    Some((get_ident(&m)?, m.span(), Some(p.span().end())))
-                }
+                Pair::Punctuated(m, p) => Some((get_ident(&m)?, m.span(), Some(p.span().end()))),
                 Pair::End(m) => Some((get_ident(&m)?, m.span(), None)),
             }
         })
@@ -455,17 +448,16 @@ impl<'opt> CodeEdit<'opt> {
         fn expand_mods(src_path: &Utf8Path, depth: usize) -> anyhow::Result<String> {
             let content = cargo_util::paths::read(src_path.as_ref())?;
 
-            let syn::File { items, .. } = syn::parse_file(&content)
-                .map_err(|e| {
-                    let start = e.span().start();
-                    anyhow!(
-                        "could not parse `{}` (line {}, column {}): {}",
-                        src_path,
-                        start.line,
-                        start.column,
-                        e,
-                    )
-                })?;
+            let syn::File { items, .. } = syn::parse_file(&content).map_err(|e| {
+                let start = e.span().start();
+                anyhow!(
+                    "could not parse `{}` (line {}, column {}): {}",
+                    src_path,
+                    start.line,
+                    start.column,
+                    e,
+                )
+            })?;
 
             let replacements = items
                 .into_iter()
@@ -882,9 +874,8 @@ impl<'opt> CodeEdit<'opt> {
                     return;
                 }
 
-                if let Some(result) = derive_macro_paths(attrs)
-                    .into_iter()
-                    .find_map(|(macro_name, path_span, comma_end)| {
+                if let Some(result) = derive_macro_paths(attrs).into_iter().find_map(
+                    |(macro_name, path_span, comma_end)| {
                         let Self { expander, .. } = self;
                         expander
                             .attempt_expand_custom_derive(&macro_name, || i.to_token_stream())
@@ -892,8 +883,8 @@ impl<'opt> CodeEdit<'opt> {
                             .map(move |expansion| {
                                 expansion.map(move |expansion| (expansion, path_span, comma_end))
                             })
-                    })
-                {
+                    },
+                ) {
                     *self.output = match result {
                         Ok((expansion, path_span, comma_end)) => {
                             Ok(Some((expansion, i.span(), path_span, comma_end)))
@@ -2019,11 +2010,7 @@ mod tests {
                 }
             })?;
             let result = edit.finish()?;
-            assert!(
-                result.contains("crate::__::crates::"),
-                "got: {}",
-                result
-            );
+            assert!(result.contains("crate::__::crates::"), "got: {}", result);
             Ok(())
         })
     }
@@ -2113,11 +2100,7 @@ macro_rules! exported {
             let macro_mod = edit.modify_declarative_macros("my_lib")?;
             let result = edit.finish()?;
             // No rename for non-exported macros
-            assert!(
-                !result.contains("___macro_def"),
-                "got: {}",
-                result
-            );
+            assert!(!result.contains("___macro_def"), "got: {}", result);
             assert!(macro_mod.is_empty());
             Ok(())
         })
@@ -2133,8 +2116,7 @@ macro_rules! exported {
             let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
             let mut translations = BTreeMap::new();
             translations.insert("foo".to_owned(), "foo".to_owned());
-            let prelude =
-                edit.resolve_pseudo_prelude("my_lib", &BTreeSet::new(), &translations)?;
+            let prelude = edit.resolve_pseudo_prelude("my_lib", &BTreeSet::new(), &translations)?;
             let result = edit.finish()?;
             assert!(
                 result.contains("preludes::my_lib"),
@@ -2176,11 +2158,7 @@ macro_rules! exported {
             let mut libs = BTreeSet::new();
             libs.insert("other_lib");
             let prelude = edit.resolve_pseudo_prelude("my_lib", &libs, &BTreeMap::new())?;
-            assert!(
-                prelude.contains("macros::other_lib"),
-                "got: {}",
-                prelude
-            );
+            assert!(prelude.contains("macros::other_lib"), "got: {}", prelude);
             Ok(())
         })
     }
@@ -2206,8 +2184,7 @@ macro_rules! exported {
         use crate::rust::allow_unused_imports_for_seemingly_proc_macros;
 
         let code = "use my_lib::regular_fn;\n\nfn main() {}\n";
-        let result =
-            allow_unused_imports_for_seemingly_proc_macros(code, |_, _| false)?;
+        let result = allow_unused_imports_for_seemingly_proc_macros(code, |_, _| false)?;
         assert_eq!(result, code);
         Ok(())
     }
@@ -2226,11 +2203,7 @@ macro_rules! exported {
             "got: {}",
             result
         );
-        assert!(
-            result.contains("use my_lib::my_macro"),
-            "got: {}",
-            result
-        );
+        assert!(result.contains("use my_lib::my_macro"), "got: {}", result);
         Ok(())
     }
 
@@ -2242,11 +2215,7 @@ macro_rules! exported {
             edit.allow_missing_docs();
             let result = edit.finish()?;
             // missing_docs should be commented out
-            assert!(
-                result.contains("/*missing_docs*/"),
-                "got: {}",
-                result
-            );
+            assert!(result.contains("/*missing_docs*/"), "got: {}", result);
             Ok(())
         })
     }

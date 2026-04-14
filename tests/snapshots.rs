@@ -64,8 +64,8 @@ snapshot_tests! {
 fn snapshot_test(name: &str, _: MutexGuard<'_, ()>) -> anyhow::Result<String> {
     let stdout = Rc::new(RefCell::default());
 
-    let toolchain = env::var("CARGO_EQUIP_TEST_NIGHTLY_TOOLCHAIN")
-        .unwrap_or_else(|_| "nightly".to_owned());
+    let toolchain =
+        env::var("CARGO_EQUIP_TEST_NIGHTLY_TOOLCHAIN").unwrap_or_else(|_| "nightly".to_owned());
     let proc_macro_srv_toolchain = env::var("CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN").ok();
 
     let mut args = vec![

@@ -232,8 +232,7 @@ fn from_ra_top_subtree(top_subtree: &TopSubtree<Span>) -> proc_macro2::Group {
         .iter()
         .map(|element| match element {
             tt::iter::TtElement::Subtree(s, iter) => {
-                let inner: proc_macro2::TokenStream =
-                    iter.map(from_ra_tt_element).collect();
+                let inner: proc_macro2::TokenStream = iter.map(from_ra_tt_element).collect();
                 proc_macro2::TokenTree::Group(proc_macro2::Group::new(
                     from_ra_delimiter(s.delimiter),
                     inner,
@@ -248,8 +247,7 @@ fn from_ra_top_subtree(top_subtree: &TopSubtree<Span>) -> proc_macro2::Group {
 fn from_ra_tt_element(element: tt::iter::TtElement<'_, Span>) -> proc_macro2::TokenTree {
     match element {
         tt::iter::TtElement::Subtree(s, iter) => {
-            let inner: proc_macro2::TokenStream =
-                iter.map(from_ra_tt_element).collect();
+            let inner: proc_macro2::TokenStream = iter.map(from_ra_tt_element).collect();
             proc_macro2::TokenTree::Group(proc_macro2::Group::new(
                 from_ra_delimiter(s.delimiter),
                 inner,
