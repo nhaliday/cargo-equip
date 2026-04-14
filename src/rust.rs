@@ -1871,4 +1871,384 @@ fn always() {}
             Ok(())
         })
     }
+
+    #[test]
+    fn resolve_cfgs_feature() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = r#"#[cfg(feature = "std")]
+fn with_std() {}
+
+#[cfg(feature = "alloc")]
+fn with_alloc() {}
+
+fn always() {}
+"#;
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.resolve_cfgs(&["std".to_owned()])?;
+            let result = edit.finish()?;
+            assert!(result.contains("with_std"), "got: {}", result);
+            assert!(!result.contains("with_alloc"), "got: {}", result);
+            assert!(result.contains("always"), "got: {}", result);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn resolve_cfgs_test_removed() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = r#"fn real() {}
+
+#[cfg(test)]
+mod tests {
+    fn test_thing() {}
+}
+"#;
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.resolve_cfgs(&[])?;
+            let result = edit.finish()?;
+            assert!(result.contains("real"), "got: {}", result);
+            assert!(!result.contains("tests"), "got: {}", result);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn process_extern_crate_in_bin_with_use() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "extern crate my_lib;\n\nfn main() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.process_extern_crate_in_bin(|name| name == "my_lib")?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("crate::__::crates::my_lib"),
+                "got: {}",
+                result
+            );
+            // Original extern crate should be commented out
+            assert!(result.contains("/*"), "got: {}", result);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn process_extern_crate_in_bin_with_macro_use() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "#[macro_use]\nextern crate my_lib as _;\n\nfn main() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.process_extern_crate_in_bin(|name| name == "my_lib")?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("crate::__::macros::my_lib::*"),
+                "got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn process_extern_crate_in_bin_with_rename() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "extern crate my_lib as ml;\n\nfn main() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.process_extern_crate_in_bin(|name| name == "my_lib")?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("as ml"),
+                "rename should be preserved, got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn translate_extern_crate_paths() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "use ::my_lib::Foo;\nfn f() { let _ = ::my_lib::bar(); }\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.translate_extern_crate_paths(|name| {
+                if name == "my_lib" {
+                    Some("my_lib".to_owned())
+                } else {
+                    None
+                }
+            })?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("crate::__::crates::"),
+                "got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn translate_crate_path_use_tree() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "use crate::Foo;\nuse crate::{Bar, Baz};\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.translate_crate_path("my_lib")?;
+            let result = edit.finish()?;
+            // Both use statements should be rewritten
+            assert!(
+                result.contains("crate::__::crates::my_lib"),
+                "got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn translate_crate_path_vis_restricted() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "pub(crate) fn f() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.translate_crate_path("my_lib")?;
+            let result = edit.finish()?;
+            // pub(crate) should become pub(in crate::...)
+            assert!(
+                result.contains("in "),
+                "pub(crate) should get 'in' prefix, got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn modify_declarative_macros_dollar_crate() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = r#"macro_rules! my_macro {
+    () => { $crate::foo() };
+}
+
+fn foo() {}
+"#;
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            let _macro_mod = edit.modify_declarative_macros("my_lib")?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("__::crates::my_lib"),
+                "$crate should be rewritten, got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn modify_declarative_macros_macro_export() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = r#"#[macro_export]
+macro_rules! exported {
+    () => {};
+}
+"#;
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            let macro_mod = edit.modify_declarative_macros("my_lib")?;
+            let result = edit.finish()?;
+            // Should rename the macro and create a forwarding stub
+            assert!(
+                result.contains("___macro_def_my_lib_exported"),
+                "got: {}",
+                result
+            );
+            assert!(!macro_mod.is_empty(), "should produce macro module content");
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn modify_declarative_macros_no_export() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "macro_rules! internal {\n    () => {};\n}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            let macro_mod = edit.modify_declarative_macros("my_lib")?;
+            let result = edit.finish()?;
+            // No rename for non-exported macros
+            assert!(
+                !result.contains("___macro_def"),
+                "got: {}",
+                result
+            );
+            assert!(macro_mod.is_empty());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn resolve_pseudo_prelude_with_translations() -> anyhow::Result<()> {
+        use std::collections::BTreeMap;
+        use std::collections::BTreeSet;
+
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "fn f() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            let mut translations = BTreeMap::new();
+            translations.insert("foo".to_owned(), "foo".to_owned());
+            let prelude =
+                edit.resolve_pseudo_prelude("my_lib", &BTreeSet::new(), &translations)?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("preludes::my_lib"),
+                "should insert prelude use, got: {}",
+                result
+            );
+            assert!(
+                prelude.contains("crate::__::crates::foo"),
+                "prelude should re-export, got: {}",
+                prelude
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn resolve_pseudo_prelude_empty() -> anyhow::Result<()> {
+        use std::collections::BTreeMap;
+        use std::collections::BTreeSet;
+
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "fn f() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            let prelude =
+                edit.resolve_pseudo_prelude("my_lib", &BTreeSet::new(), &BTreeMap::new())?;
+            assert!(prelude.is_empty());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn resolve_pseudo_prelude_with_local_inner_macros() -> anyhow::Result<()> {
+        use std::collections::BTreeMap;
+        use std::collections::BTreeSet;
+
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "fn f() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            let mut libs = BTreeSet::new();
+            libs.insert("other_lib");
+            let prelude = edit.resolve_pseudo_prelude("my_lib", &libs, &BTreeMap::new())?;
+            assert!(
+                prelude.contains("macros::other_lib"),
+                "got: {}",
+                prelude
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn allow_unused_imports_for_proc_macros() -> anyhow::Result<()> {
+        use crate::rust::allow_unused_imports_for_seemingly_proc_macros;
+
+        let code = "use my_lib::my_macro;\n\nfn main() {}\n";
+        let result = allow_unused_imports_for_seemingly_proc_macros(code, |crate_name, name| {
+            crate_name == "my_lib" && name == "my_macro"
+        })?;
+        assert!(
+            result.contains("#[allow(unused_imports)]"),
+            "got: {}",
+            result
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn allow_unused_imports_no_match() -> anyhow::Result<()> {
+        use crate::rust::allow_unused_imports_for_seemingly_proc_macros;
+
+        let code = "use my_lib::regular_fn;\n\nfn main() {}\n";
+        let result =
+            allow_unused_imports_for_seemingly_proc_macros(code, |_, _| false)?;
+        assert_eq!(result, code);
+        Ok(())
+    }
+
+    #[test]
+    fn allow_unused_imports_group() -> anyhow::Result<()> {
+        use crate::rust::allow_unused_imports_for_seemingly_proc_macros;
+
+        let code = "use my_lib::{regular_fn, my_macro};\n\nfn main() {}\n";
+        let result = allow_unused_imports_for_seemingly_proc_macros(code, |crate_name, name| {
+            crate_name == "my_lib" && name == "my_macro"
+        })?;
+        // The proc macro import should be split out with allow(unused_imports)
+        assert!(
+            result.contains("#[allow(unused_imports)]"),
+            "got: {}",
+            result
+        );
+        assert!(
+            result.contains("use my_lib::my_macro"),
+            "got: {}",
+            result
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn allow_missing_docs_rewrites_lint() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "#[deny(missing_docs)]\nfn f() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.allow_missing_docs();
+            let result = edit.finish()?;
+            // missing_docs should be commented out
+            assert!(
+                result.contains("/*missing_docs*/"),
+                "got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn allow_missing_docs_ignores_other_lints() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "#[deny(unused_variables)]\nfn f() {}\n";
+            let mut edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            edit.allow_missing_docs();
+            let result = edit.finish()?;
+            assert!(
+                !result.contains("/*"),
+                "should not modify other lints, got: {}",
+                result
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn indent_code_basic() {
+        use crate::rust::indent_code;
+
+        let code = "fn f() {\n    42\n}\n";
+        let result = indent_code(code, 1);
+        assert!(result.starts_with("    fn f()"), "got: {}", result);
+    }
+
+    #[test]
+    fn has_local_inner_macros_attr_detected() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "#[macro_export(local_inner_macros)]\nmacro_rules! m { () => {} }\n";
+            let edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            assert!(edit.has_local_inner_macros_attr());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn has_local_inner_macros_attr_not_present() -> anyhow::Result<()> {
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let code = "#[macro_export]\nmacro_rules! m { () => {} }\n";
+            let edit = CodeEdit::from_code(dummy_mod_name, code)?;
+            assert!(!edit.has_local_inner_macros_attr());
+            Ok(())
+        })
+    }
 }

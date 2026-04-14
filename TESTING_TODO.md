@@ -6,7 +6,7 @@
 - **Configurable proc-macro-srv toolchain in tests**: Added `CARGO_EQUIP_TEST_PROC_MACRO_SRV_TOOLCHAIN` env var to decouple the proc-macro-srv binary version from the build/udeps toolchain.
 - **Conversion round-trip tests for `ra_proc_macro.rs`**: Test `proc_macro2 -> ra_ap_tt -> proc_macro2` round-trips for known token streams. Tests only construct `proc_macro2` types, so they don't need updating when `ra_ap_tt` types change — breakage surfaces as compile errors in the conversion functions, not the tests.
 - **Expansion integration tests for `ProcMacroExpander`**: Build proconio-derive dylib, spawn `ProcMacroExpander`, and test attr expansion (`fastout`), macro listing, and unknown macro handling in isolation from the full bundling pipeline.
-- **Unit tests for coverage gaps in `rust.rs`**: Lightweight tests using `CodeEdit::from_code` and free functions to exercise previously-uncovered code paths: `#[cfg_attr(cargo_equip, cargo_equip::skip)]` detection (lines 54-67), `crate::` path rewriting in `translate_crate_path` (lines 1087-1088), nested `mod` handling in `insert_prelude_for_main_crate` (lines 175-191), and `#[cfg(cargo_equip)]` predicate in `resolve_cfgs` (line 1424). Confirmed covered via `cargo llvm-cov`.
+- **Unit tests for `rust.rs` CodeEdit methods and free functions**: 28 tests using `CodeEdit::from_code`/`.finish()` and direct function calls. Covers `process_extern_crate_in_bin`, `translate_crate_path`, `translate_extern_crate_paths`, `resolve_cfgs`, `modify_declarative_macros`, `resolve_pseudo_prelude`, `allow_missing_docs`, `allow_unused_imports_for_seemingly_proc_macros`, `insert_prelude_for_main_crate`, `find_skip_attribute`, `indent_code`, `erase_docs`, `erase_comments`, and `has_local_inner_macros_attr`. Unit-test-only line coverage for `rust.rs` is ~76%. Remaining ~24% is proc macro expansion (needs `ProcMacroExpander`), file I/O (`expand_mods`, `expand_includes`, `CodeEdit::new`), and `process_extern_crates_in_lib` (needs `Shell`) — covered by integration snapshot tests.
 
 ## TODO
 
@@ -57,38 +57,9 @@ Extracting helpers like `is_macro_use(attr) -> bool`, `derive_names(attr) -> Vec
 
 High-value pre-upgrade refactoring: directly isolates the syn API surface that changes most.
 
-### Extract `CodeEdit` transformations into pure functions
+### Extract `CodeEdit` transformations into pure functions (low priority)
 
-Methods like `resolve_cfgs`, `translate_crate_path`, `process_extern_crate_in_bin` mutate `CodeEdit` internal state: they read `self.file` (the parsed AST), write span-based substitutions into `self.replacements`, and rely on `apply()` to flush replacements into `self.string` and re-parse. This makes them testable only through the full pipeline or via `CodeEdit::from_code` (as the new unit tests do).
-
-**Current state (`CodeEdit` fields):**
-- `string: String` — source text, modified by `apply()`
-- `file: syn::File` — parsed AST, re-parsed after each `apply()`
-- `replacements: BTreeMap<(LineColumn, LineColumn), String>` — pending span-based substitutions
-- `cargo_equip_mod_name` / `has_local_inner_macros_attr` — effectively immutable after construction
-
-**Proposed extraction:** The visitor logic in each method only reads `&syn::File` and produces replacements. Extract as pure functions returning the replacement map:
-
-```rust
-type Replacements = BTreeMap<(LineColumn, LineColumn), String>;
-
-fn resolve_cfgs_replacements(file: &syn::File, features: &[String]) -> Replacements;
-fn translate_crate_path_replacements(file: &syn::File, extern_crate_name: &str, cargo_equip_mod_name: &Ident) -> Replacements;
-fn process_extern_crate_in_bin_replacements(file: &syn::File, cargo_equip_mod_name: &Ident, is_lib_to_bundle: impl FnMut(&str) -> bool) -> Replacements;
-```
-
-**Why return replacements instead of `String`:** `CodeEdit` batches replacements from multiple methods before calling `apply()`, which flushes them all and re-parses once. If the extracted functions each did their own parse-visit-apply cycle, you'd re-parse between every step. Returning replacements preserves the batching in production. Tests can either inspect the replacements directly or apply them via `replace_ranges(code, replacements)` to get the output string:
-
-```rust
-let file = syn::parse_file(code).unwrap();
-let replacements = resolve_cfgs_replacements(&file, &["foo".into()]);
-let result = replace_ranges(code, replacements);
-assert_eq!(result, expected);
-```
-
-The `CodeEdit` methods become thin wrappers that merge the returned replacements into `self.replacements`.
-
-This is the "Sprout Method" / "Extract and Override" pattern from *Working Effectively with Legacy Code*. High-value pre-upgrade refactoring: cfg resolution and path rewriting are the most complex logic in `rust.rs`.
+`CodeEdit` is a small struct (5 fields, 3 mutable) and the `from_code()`/`.finish()` pattern already makes methods easy to test in isolation — the 28 unit tests demonstrate this. Extracting pure functions returning `Replacements` would give slightly cleaner test signatures and preserve replacement batching, but isn't necessary for testability. See earlier discussion for the proposed signatures if this becomes worthwhile.
 
 ### Test coverage reporting
 
