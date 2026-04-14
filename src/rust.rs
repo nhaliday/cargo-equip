@@ -37,6 +37,129 @@ use syn::{
     VisRestricted,
 };
 
+// --- Attribute-matching helpers ---
+// These isolate the syn `parse_meta` / `NestedMeta` API surface.
+// When upgrading to syn 2.x, only these helpers need to change.
+
+fn has_attr(attrs: &[Attribute], name: &str) -> bool {
+    attrs
+        .iter()
+        .flat_map(Attribute::parse_meta)
+        .any(|m| m.path().is_ident(name))
+}
+
+fn is_doc_attr(attr: &Attribute) -> bool {
+    matches!(attr.parse_meta(), Ok(m) if m.path().is_ident("doc"))
+}
+
+fn has_macro_export_local_inner_macros(attrs: &[Attribute]) -> bool {
+    attrs
+        .iter()
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|meta| match meta {
+            Meta::List(MetaList { path, nested, .. }) if path.is_ident("macro_export") => {
+                Some(nested)
+            }
+            _ => None,
+        })
+        .any(|nested| {
+            nested.iter().any(|meta| {
+                matches!(
+                    meta,
+                    NestedMeta::Meta(Meta::Path(path))
+                    if path.is_ident("local_inner_macros")
+                )
+            })
+        })
+}
+
+fn path_attr_value(attrs: &[Attribute]) -> Option<String> {
+    attrs
+        .iter()
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|meta| match meta {
+            Meta::NameValue(name_value) => Some(name_value),
+            _ => None,
+        })
+        .filter(|MetaNameValue { path, .. }| {
+            matches!(path.get_ident(), Some(i) if i == "path")
+        })
+        .find_map(|MetaNameValue { lit, .. }| match lit {
+            Lit::Str(s) => Some(s.value()),
+            _ => None,
+        })
+}
+
+/// Extract `#[cfg(...)]` expressions from attributes, paired with their spans.
+fn cfg_expressions(attrs: &[Attribute]) -> Vec<(Span, cfg_expr::Expression)> {
+    attrs
+        .iter()
+        .flat_map(|a| a.parse_meta().map(|m| (a.span(), m)))
+        .flat_map(|(span, meta)| match meta {
+            Meta::List(meta_list) => Some((span, meta_list)),
+            _ => None,
+        })
+        .filter(|(_, MetaList { path, .. })| path.is_ident("cfg"))
+        .flat_map(|(span, MetaList { nested, .. })| {
+            let expr =
+                cfg_expr::Expression::parse(&nested.to_token_stream().to_string()).ok()?;
+            Some((span, expr))
+        })
+        .collect()
+}
+
+/// Extract derive macro names with their spans and optional trailing comma span.
+fn derive_macro_paths(
+    attrs: &[Attribute],
+) -> Vec<(String, Span, Option<LineColumn>)> {
+    attrs
+        .iter()
+        .flat_map(Attribute::parse_meta)
+        .flat_map(|meta| match meta {
+            Meta::List(list_meta) => Some(list_meta),
+            _ => None,
+        })
+        .filter(|MetaList { path, .. }| path.is_ident("derive"))
+        .flat_map(|MetaList { nested, .. }| nested.into_pairs())
+        .flat_map(|pair| {
+            fn get_ident(nested_meta: &NestedMeta) -> Option<String> {
+                if let NestedMeta::Meta(Meta::Path(path)) = nested_meta {
+                    path.get_ident().map(ToString::to_string)
+                } else {
+                    None
+                }
+            }
+
+            match pair {
+                Pair::Punctuated(m, p) => {
+                    Some((get_ident(&m)?, m.span(), Some(p.span().end())))
+                }
+                Pair::End(m) => Some((get_ident(&m)?, m.span(), None)),
+            }
+        })
+        .collect()
+}
+
+/// Extract lint names from `#[warn(...)]`, `#[deny(...)]`, or `#[forbid(...)]` attributes.
+fn lint_meta_paths(attr: &Attribute) -> Option<(syn::Path, Vec<syn::Path>)> {
+    if let Ok(Meta::List(MetaList { path, nested, .. })) = attr.parse_meta() {
+        if ["warn", "deny", "forbid"]
+            .iter()
+            .any(|lint| path.is_ident(lint))
+        {
+            let paths = nested
+                .into_iter()
+                .flat_map(|meta| match meta {
+                    NestedMeta::Meta(Meta::Path(path)) => Some(path),
+                    _ => None,
+                })
+                .collect();
+            return Some((path, paths));
+        }
+    }
+    None
+}
+
 pub(crate) fn find_skip_attribute(code: &str) -> anyhow::Result<bool> {
     let syn::File { attrs, .. } = syn::parse_file(code).map_err(|e| {
         let start = e.span().start();
@@ -357,20 +480,7 @@ impl<'opt> CodeEdit<'opt> {
                     _ => None,
                 })
                 .map(|(attrs, ident, semi)| {
-                    let paths = if let Some(path) = attrs
-                        .iter()
-                        .flat_map(Attribute::parse_meta)
-                        .flat_map(|meta| match meta {
-                            Meta::NameValue(name_value) => Some(name_value),
-                            _ => None,
-                        })
-                        .filter(|MetaNameValue { path, .. }| {
-                            matches!(path.get_ident(), Some(i) if i == "path")
-                        })
-                        .find_map(|MetaNameValue { lit, .. }| match lit {
-                            Lit::Str(s) => Some(s.value()),
-                            _ => None,
-                        }) {
+                    let paths = if let Some(path) = path_attr_value(&attrs) {
                         vec![src_path.with_file_name("").join(path)]
                     } else if depth == 0 || src_path.file_name() == Some("mod.rs") {
                         vec![
@@ -430,24 +540,7 @@ impl<'opt> CodeEdit<'opt> {
 
             impl Visit<'_> for Visitor<'_> {
                 fn visit_item_macro(&mut self, i: &ItemMacro) {
-                    *self.out |= i
-                        .attrs
-                        .iter()
-                        .flat_map(Attribute::parse_meta)
-                        .flat_map(|meta| match meta {
-                            Meta::List(MetaList { path, nested, .. }) => Some((path, nested)),
-                            _ => None,
-                        })
-                        .any(|(path, nested)| {
-                            path.is_ident("macro_export")
-                                && nested.iter().any(|meta| {
-                                    matches!(
-                                        meta,
-                                        NestedMeta::Meta(Meta::Path(path))
-                                        if path.is_ident("local_inner_macros")
-                                    )
-                                })
-                        });
+                    *self.out |= has_macro_export_local_inner_macros(&i.attrs);
                 }
             }
         }
@@ -506,10 +599,7 @@ impl<'opt> CodeEdit<'opt> {
                 } = item_use;
 
                 if (self.is_lib_to_bundle)(&ident.to_string()) {
-                    let is_macro_use = attrs
-                        .iter()
-                        .flat_map(Attribute::parse_meta)
-                        .any(|m| m.path().is_ident("macro_use"));
+                    let is_macro_use = has_attr(attrs, "macro_use");
                     let vis = vis.to_token_stream();
 
                     let mut insertion = "".to_owned();
@@ -792,31 +882,8 @@ impl<'opt> CodeEdit<'opt> {
                     return;
                 }
 
-                if let Some(result) = attrs
-                    .iter()
-                    .flat_map(Attribute::parse_meta)
-                    .flat_map(|meta| match meta {
-                        Meta::List(list_meta) => Some(list_meta),
-                        _ => None,
-                    })
-                    .filter(|MetaList { path, .. }| path.is_ident("derive"))
-                    .flat_map(|MetaList { nested, .. }| nested.into_pairs())
-                    .flat_map(|pair| {
-                        fn get_ident(nested_meta: &NestedMeta) -> Option<String> {
-                            if let NestedMeta::Meta(Meta::Path(path)) = nested_meta {
-                                path.get_ident().map(ToString::to_string)
-                            } else {
-                                None
-                            }
-                        }
-
-                        match pair {
-                            Pair::Punctuated(m, p) => {
-                                Some((get_ident(&m)?, m.span(), Some(p.span().end())))
-                            }
-                            Pair::End(m) => Some((get_ident(&m)?, m.span(), None)),
-                        }
-                    })
+                if let Some(result) = derive_macro_paths(attrs)
+                    .into_iter()
                     .find_map(|(macro_name, path_span, comma_end)| {
                         let Self { expander, .. } = self;
                         expander
@@ -1151,11 +1218,7 @@ impl<'opt> CodeEdit<'opt> {
                     pseudo_extern_crate_name,
                     &mut self.replacements,
                 );
-                if attrs
-                    .iter()
-                    .flat_map(Attribute::parse_meta)
-                    .any(|m| m.path().is_ident("macro_export"))
-                {
+                if has_attr(attrs, "macro_export") {
                     let rename = format!(
                         "{}_macro_def_{}_{}",
                         self.cargo_equip_mod_name, pseudo_extern_crate_name, ident,
@@ -1402,20 +1465,8 @@ impl<'opt> CodeEdit<'opt> {
                 attrs: fn(&T) -> &[Attribute],
                 visit: fn(&mut Self, &'a T),
             ) {
-                let sufficiencies = attrs(i)
-                    .iter()
-                    .flat_map(|a| a.parse_meta().map(|m| (a.span(), m)))
-                    .flat_map(|(span, meta)| match meta {
-                        Meta::List(meta_list) => Some((span, meta_list)),
-                        _ => None,
-                    })
-                    .filter(|(_, MetaList { path, .. })| path.is_ident("cfg"))
-                    .flat_map(|(span, MetaList { nested, .. })| {
-                        let expr =
-                            cfg_expr::Expression::parse(&nested.to_token_stream().to_string())
-                                .ok()?;
-                        Some((span, expr))
-                    })
+                let sufficiencies = cfg_expressions(attrs(i))
+                    .into_iter()
                     .map(|(span, expr)| {
                         let sufficiency = expr.eval(|pred| match pred {
                             cfg_expr::Predicate::Test | cfg_expr::Predicate::ProcMacro => {
@@ -1569,23 +1620,16 @@ impl<'opt> CodeEdit<'opt> {
 
         impl Visit<'_> for Visitor<'_> {
             fn visit_attribute(&mut self, i: &Attribute) {
-                if let Ok(Meta::List(MetaList { path, nested, .. })) = i.parse_meta() {
-                    if ["warn", "deny", "forbid"]
-                        .iter()
-                        .any(|lint| path.is_ident(lint))
-                    {
-                        for meta in nested {
-                            if let NestedMeta::Meta(Meta::Path(path)) = meta {
-                                if ["missing_docs", "missing_crate_level_docs"]
-                                    .iter()
-                                    .any(|lint| path.is_ident(lint))
-                                {
-                                    let pos = path.span().start();
-                                    self.replacements.insert((pos, pos), "/*".to_owned());
-                                    let pos = path.span().end();
-                                    self.replacements.insert((pos, pos), "*/".to_owned());
-                                }
-                            }
+                if let Some((_, paths)) = lint_meta_paths(i) {
+                    for path in paths {
+                        if ["missing_docs", "missing_crate_level_docs"]
+                            .iter()
+                            .any(|lint| path.is_ident(lint))
+                        {
+                            let pos = path.span().start();
+                            self.replacements.insert((pos, pos), "/*".to_owned());
+                            let pos = path.span().end();
+                            self.replacements.insert((pos, pos), "*/".to_owned());
                         }
                     }
                 }
@@ -1603,7 +1647,7 @@ impl<'opt> CodeEdit<'opt> {
 
         impl Visit<'_> for Visitor<'_> {
             fn visit_attribute(&mut self, attr: &'_ Attribute) {
-                if matches!(attr.parse_meta(), Ok(m) if m.path().is_ident("doc")) {
+                if is_doc_attr(attr) {
                     set_span(self.0, attr.span(), true);
                 }
             }

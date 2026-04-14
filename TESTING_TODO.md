@@ -7,6 +7,7 @@
 - **Conversion round-trip tests for `ra_proc_macro.rs`**: Test `proc_macro2 -> ra_ap_tt -> proc_macro2` round-trips for known token streams. Tests only construct `proc_macro2` types, so they don't need updating when `ra_ap_tt` types change — breakage surfaces as compile errors in the conversion functions, not the tests.
 - **Expansion integration tests for `ProcMacroExpander`**: Build proconio-derive dylib, spawn `ProcMacroExpander`, and test attr expansion (`fastout`), macro listing, and unknown macro handling in isolation from the full bundling pipeline.
 - **Unit tests for `rust.rs` CodeEdit methods and free functions**: 28 tests using `CodeEdit::from_code`/`.finish()` and direct function calls. Covers `process_extern_crate_in_bin`, `translate_crate_path`, `translate_extern_crate_paths`, `resolve_cfgs`, `modify_declarative_macros`, `resolve_pseudo_prelude`, `allow_missing_docs`, `allow_unused_imports_for_seemingly_proc_macros`, `insert_prelude_for_main_crate`, `find_skip_attribute`, `indent_code`, `erase_docs`, `erase_comments`, and `has_local_inner_macros_attr`. Unit-test-only line coverage for `rust.rs` is ~76%. Remaining ~24% is proc macro expansion (needs `ProcMacroExpander`), file I/O (`expand_mods`, `expand_includes`, `CodeEdit::new`), and `process_extern_crates_in_lib` (needs `Shell`) — covered by integration snapshot tests.
+- **Attribute-matching helpers extracted in `rust.rs`**: 7 helpers (`has_attr`, `is_doc_attr`, `has_macro_export_local_inner_macros`, `path_attr_value`, `cfg_expressions`, `derive_macro_paths`, `lint_meta_paths`) isolate all `parse_meta`/`NestedMeta` usage. 8 of 9 original call sites now go through helpers; the remaining one is `find_skip_attribute` which has a unique `cfg_attr` pattern. For syn 2.x: change the 7 helpers + that one function instead of 9 scattered sites.
 
 ## TODO
 
@@ -46,16 +47,6 @@ Coverage analysis (`cargo llvm-cov --html`) shows the existing snapshot tests ex
 
 **Blind spot — macro-generated visitors:** The `impl_visits!` macro blocks generate ~30 `visit_*` methods each, but llvm-cov collapses them into a single source line (e.g., 14.4k aggregate hits for `resolve_cfgs` visitors). Rare AST node types like `ExprTryBlock`, `ExprYield`, `ItemTraitAlias`, `ItemMacro2` are almost certainly never exercised, but this is invisible in the report. Behavioral regressions in these visitors would not be caught. Expanding the macros into explicit methods would give per-method visibility, but the methods all delegate to the same `proceed()` function, so the practical risk is low.
 
-### Extract attribute-matching helpers in `rust.rs`
-
-The `Attribute::parse_meta()` + match pattern repeats 9 times in `rust.rs`. This is the API that changes most in syn 2.x (`parse_meta()` is removed, `NestedMeta` is gone, `Meta::List` contains a `TokenStream` instead of `Punctuated<NestedMeta>`).
-
-Extracting helpers like `is_macro_use(attr) -> bool`, `derive_names(attr) -> Vec<String>`, `is_doc(attr) -> bool` would:
-- Make each helper independently unit-testable
-- Isolate the syn API surface so the upgrade touches helpers only, not call sites
-- Reduce the blast radius of the `parse_meta` removal
-
-High-value pre-upgrade refactoring: directly isolates the syn API surface that changes most.
 
 ### Extract `CodeEdit` transformations into pure functions (low priority)
 
