@@ -476,15 +476,11 @@ impl<'opt> CodeEdit<'opt> {
                             src_path.with_file_name(ident.to_string()).join("mod.rs"),
                         ]
                     } else {
+                        // For a file like `map.rs`, submodules live in `map/`
+                        let dir = src_path.with_extension("");
                         vec![
-                            src_path
-                                .with_extension("")
-                                .with_file_name(ident.to_string())
-                                .with_extension("rs"),
-                            src_path
-                                .with_extension("")
-                                .with_file_name(ident.to_string())
-                                .join("mod.rs"),
+                            dir.join(ident.to_string()).with_extension("rs"),
+                            dir.join(ident.to_string()).join("mod.rs"),
                         ]
                     };
 
@@ -2246,6 +2242,38 @@ macro_rules! exported {
             let code = "#[macro_export]\nmacro_rules! m { () => {} }\n";
             let edit = CodeEdit::from_code(dummy_mod_name, code)?;
             assert!(!edit.has_local_inner_macros_attr());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn expand_mods_sibling_directory() -> anyhow::Result<()> {
+        // Regression test: `mod entry;` in `map.rs` should resolve to `map/entry.rs`,
+        // not `entry.rs` (which would be a sibling of `map.rs`).
+        let dir = tempfile::tempdir()?;
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(src.join("map"))?;
+        std::fs::write(src.join("lib.rs"), "mod map;\npub fn lib_fn() {}\n")?;
+        std::fs::write(src.join("map.rs"), "mod entry;\npub fn map_fn() {}\n")?;
+        std::fs::write(src.join("map").join("entry.rs"), "pub fn entry_fn() {}\n")?;
+
+        let lib_pathbuf = src.join("lib.rs");
+        let lib_path = camino::Utf8Path::from_path(lib_pathbuf.as_path()).unwrap();
+        DUMMY_MOD_NAME.with(|dummy_mod_name| {
+            let edit = CodeEdit::new(dummy_mod_name, lib_path, || {
+                ("test_crate".to_owned(), "test@0.1.0")
+            })?;
+            let result = edit.finish()?;
+            assert!(
+                result.contains("entry_fn"),
+                "expected entry_fn in expanded code, got: {}",
+                result
+            );
+            assert!(
+                result.contains("map_fn"),
+                "expected map_fn in expanded code, got: {}",
+                result
+            );
             Ok(())
         })
     }
