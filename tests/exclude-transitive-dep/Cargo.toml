@@ -1,0 +1,8 @@
+[package]
+name = "exclude-transitive-dep"
+version = "0.0.0"
+edition = "2018"
+publish = false
+
+[dependencies]
+mylib = { path = "mylib" }

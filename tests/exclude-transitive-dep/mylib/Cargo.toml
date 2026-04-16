@@ -1,0 +1,9 @@
+[package]
+name = "mylib"
+version = "0.0.0"
+edition = "2018"
+publish = false
+license = "MIT"
+
+[dependencies]
+strsim = "0.10.0"
