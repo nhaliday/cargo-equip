@@ -12,7 +12,7 @@ use krates::PkgSpec;
 use rand::Rng as _;
 use serde::Deserialize;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     env,
     io::Cursor,
     path::{Path, PathBuf},
@@ -247,6 +247,23 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
             .map(|(key, value)| value["package"].as_str().unwrap_or(key).to_owned())
             .collect();
 
+        // Collect features requested on each excluded crate by any resolved package.
+        let mut excluded_features: HashMap<&str, (BTreeSet<String>, bool)> = HashMap::new();
+        for pkg in &metadata.packages {
+            if !all_resolved_pkg_ids.contains(&pkg.id) {
+                continue;
+            }
+            for dep in &pkg.dependencies {
+                let (feats, needs_default) = excluded_features
+                    .entry(&dep.name)
+                    .or_insert_with(|| (BTreeSet::new(), false));
+                feats.extend(dep.features.iter().cloned());
+                if dep.uses_default_features {
+                    *needs_default = true;
+                }
+            }
+        }
+
         for pkg in &metadata.packages {
             if !all_resolved_pkg_ids.contains(&pkg.id) {
                 continue;
@@ -257,9 +274,33 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
             if existing_packages.contains(&pkg.name) {
                 continue;
             }
+
+            let (features, uses_default_features) = excluded_features
+                .get(pkg.name.as_str())
+                .map(|(f, d)| (f.clone(), *d))
+                .unwrap_or_default();
+            let needs_table = !features.is_empty() || !uses_default_features;
+
             match &pkg.source {
                 Some(src) if src.is_crates_io() => {
-                    deps_table[&pkg.name] = toml_edit::value(format!("={}", pkg.version));
+                    if needs_table {
+                        let mut dep = toml_edit::InlineTable::new();
+                        dep.insert("version", format!("={}", pkg.version).into());
+                        if !uses_default_features {
+                            dep.insert("default-features", false.into());
+                        }
+                        if !features.is_empty() {
+                            let arr = features
+                                .iter()
+                                .map(|f| f.as_str())
+                                .collect::<toml_edit::Array>();
+                            dep.insert("features", arr.into());
+                        }
+                        deps_table[&pkg.name] =
+                            toml_edit::Item::Value(toml_edit::Value::InlineTable(dep));
+                    } else {
+                        deps_table[&pkg.name] = toml_edit::value(format!("={}", pkg.version));
+                    }
                 }
                 Some(src) if src.repr.starts_with("git+") => {
                     let url = &src.repr["git+".len()..];
@@ -267,6 +308,16 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
                     let mut dep = toml_edit::InlineTable::new();
                     dep.insert("git", url.into());
                     dep.insert("version", format!("={}", pkg.version).into());
+                    if !uses_default_features {
+                        dep.insert("default-features", false.into());
+                    }
+                    if !features.is_empty() {
+                        let arr = features
+                            .iter()
+                            .map(|f| f.as_str())
+                            .collect::<toml_edit::Array>();
+                        dep.insert("features", arr.into());
+                    }
                     deps_table[&pkg.name] =
                         toml_edit::Item::Value(toml_edit::Value::InlineTable(dep));
                 }
@@ -287,6 +338,16 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
                             .as_str()
                             .into(),
                     );
+                    if !uses_default_features {
+                        dep.insert("default-features", false.into());
+                    }
+                    if !features.is_empty() {
+                        let arr = features
+                            .iter()
+                            .map(|f| f.as_str())
+                            .collect::<toml_edit::Array>();
+                        dep.insert("features", arr.into());
+                    }
                     deps_table[&pkg.name] =
                         toml_edit::Item::Value(toml_edit::Value::InlineTable(dep));
                 }
