@@ -223,6 +223,77 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
         modify_dependencies(table);
     }
 
+    // Add excluded crates that appear anywhere in the resolve graph as dependencies
+    // in the check manifest. This handles the case where a bundled library uses an
+    // excluded crate transitively. Without this, the check would fail because the
+    // bundled code references the excluded crate but it's not in the manifest.
+    {
+        let all_resolved_pkg_ids: HashSet<&cm::PackageId> = metadata
+            .resolve
+            .as_ref()
+            .into_iter()
+            .flat_map(|r| &r.nodes)
+            .map(|n| &n.id)
+            .collect();
+
+        let deps_table = temp_manifest["dependencies"]
+            .as_table_mut()
+            .expect("`[dependencies]` should be a table");
+
+        // Collect package names already present in the deps table, including
+        // renamed deps where the real package name is in the `package` field.
+        let existing_packages: HashSet<String> = deps_table
+            .iter()
+            .map(|(key, value)| value["package"].as_str().unwrap_or(key).to_owned())
+            .collect();
+
+        for pkg in &metadata.packages {
+            if !all_resolved_pkg_ids.contains(&pkg.id) {
+                continue;
+            }
+            if !exclude.iter().any(|s| s.matches(pkg)) {
+                continue;
+            }
+            if existing_packages.contains(&pkg.name) {
+                continue;
+            }
+            match &pkg.source {
+                Some(src) if src.is_crates_io() => {
+                    deps_table[&pkg.name] = toml_edit::value(format!("={}", pkg.version));
+                }
+                Some(src) if src.repr.starts_with("git+") => {
+                    let url = &src.repr["git+".len()..];
+                    let url = url.split(&['?', '#'][..]).next().unwrap_or(url);
+                    let mut dep = toml_edit::InlineTable::new();
+                    dep.insert("git", url.into());
+                    dep.insert("version", format!("={}", pkg.version).into());
+                    deps_table[&pkg.name] =
+                        toml_edit::Item::Value(toml_edit::Value::InlineTable(dep));
+                }
+                Some(src) => {
+                    bail!(
+                        "excluded crate `{}` has unsupported source `{}` for the check manifest",
+                        pkg.name,
+                        src.repr,
+                    );
+                }
+                None => {
+                    let mut dep = toml_edit::InlineTable::new();
+                    dep.insert(
+                        "path",
+                        pkg.manifest_path
+                            .parent()
+                            .expect("manifest should have parent")
+                            .as_str()
+                            .into(),
+                    );
+                    deps_table[&pkg.name] =
+                        toml_edit::Item::Value(toml_edit::Value::InlineTable(dep));
+                }
+            }
+        }
+    }
+
     cargo_util::paths::write(
         temp_pkg.path().join("Cargo.toml"),
         temp_manifest.to_string(),
