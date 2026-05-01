@@ -39,6 +39,61 @@ pub(crate) fn cargo_metadata(manifest_path: &Path, cwd: &Path) -> cm::Result<cm:
         .exec()
 }
 
+// Run `cargo metadata` against a copy of `manifest_path` with `[dev-dependencies]`
+// (and `[target.<cfg>.dev-dependencies]`) stripped, so the returned `resolve` does
+// not unify dev-only features into the normal-build feature set. Used when the
+// chosen target is not an example/test/bench, where dev-deps wouldn't actually
+// be linked.
+//
+// The strip is done by editing the manifest in place under a Drop guard that
+// restores the original on return (including panic). Only the root manifest is
+// touched; in workspace setups, dev-deps from sibling members can still leak
+// features into the unified resolve.
+pub(crate) fn cargo_metadata_excluding_dev_deps(
+    manifest_path: &Path,
+    cwd: &Path,
+) -> anyhow::Result<cm::Metadata> {
+    let original = cargo_util::paths::read(manifest_path)?;
+    let mut doc = original.parse::<toml_edit::Document>()?;
+
+    let mut changed = doc.as_table_mut().remove("dev-dependencies").is_some();
+    if let toml_edit::Item::Table(target_table) = &mut doc["target"] {
+        for (_, item) in target_table.iter_mut() {
+            if let toml_edit::Item::Table(tbl) = item {
+                changed |= tbl.remove("dev-dependencies").is_some();
+            }
+        }
+    }
+
+    if !changed {
+        return cargo_metadata(manifest_path, cwd).map_err(Into::into);
+    }
+
+    struct Restore {
+        path: PathBuf,
+        content: String,
+    }
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Err(e) = cargo_util::paths::write(&self.path, &self.content) {
+                eprintln!(
+                    "warning: failed to restore manifest `{}`: {}",
+                    self.path.display(),
+                    e,
+                );
+            }
+        }
+    }
+
+    cargo_util::paths::write(manifest_path, doc.to_string())?;
+    let _restore = Restore {
+        path: manifest_path.to_path_buf(),
+        content: original,
+    };
+
+    cargo_metadata(manifest_path, cwd).map_err(Into::into)
+}
+
 pub(crate) fn resolve_behavior(
     package: &cm::Package,
     workspace_root: &Utf8Path,

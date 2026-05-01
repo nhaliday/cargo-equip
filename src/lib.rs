@@ -518,6 +518,26 @@ pub fn run(opt: Opt, ctx: Context<'_>) -> anyhow::Result<()> {
 
     let metadata = workspace::cargo_metadata(&manifest_path, &cwd)?;
 
+    let target_is_example = if lib {
+        metadata.lib_target()
+    } else if let Some(bin) = &bin {
+        metadata.bin_target_by_name(bin)
+    } else if let Some(example) = &example {
+        metadata.example_target_by_name(example)
+    } else if let Some(src) = &src {
+        metadata.target_by_src_path(&cwd.join(src))
+    } else {
+        metadata.exactly_one_target()
+    }?
+    .0
+    .is_example();
+
+    let metadata = if target_is_example {
+        metadata
+    } else {
+        workspace::cargo_metadata_excluding_dev_deps(&manifest_path, &cwd)?
+    };
+
     let (root, root_package) = if lib {
         metadata.lib_target()
     } else if let Some(bin) = bin {
