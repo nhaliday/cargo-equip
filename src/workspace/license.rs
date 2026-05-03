@@ -208,10 +208,12 @@ fn read(package: &cm::Package, cache_dir: &Path) -> Result<Option<String>, Vec<S
         return Ok(None);
     }
 
-    let file_names = if is("MIT") {
+    let file_names: &[&str] = if is("MIT") {
         &["LICENSE-MIT", "LICENSE"]
     } else if is("Apache-2.0") {
         &["LICENSE-APACHE", "LICENSE"]
+    } else if is("BSD-2-Clause") {
+        &["LICENSE-BSD", "LICENSE-BSD-2-Clause", "LICENSE"]
     } else {
         return Err(vec![format!(
             "`{}`: unsupported license: `{}`",
@@ -332,9 +334,14 @@ fn find_in_git_repos(url: &str, sha1: &str, file_names: &[&str]) -> anyhow::Resu
 }
 
 fn find(dir: &Path, file_names: &[&str]) -> Option<anyhow::Result<String>> {
+    const EXTENSIONS: &[&str] = &["", ".txt", ".md"];
     let path = &file_names
         .iter()
-        .map(|name| dir.join(name))
+        .flat_map(|name| {
+            EXTENSIONS
+                .iter()
+                .map(move |ext| dir.join(format!("{}{}", name, ext)))
+        })
         .find(|path| path.exists())?;
     Some(cargo_util::paths::read(path))
 }
