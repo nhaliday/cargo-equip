@@ -921,6 +921,7 @@ fn bundle(
                 edit.translate_crate_path(pseudo_extern_crate_name)?;
                 edit.translate_extern_crate_paths(translate_extern_crate_name)?;
                 edit.process_extern_crates_in_lib(translate_extern_crate_name, shell)?;
+                edit.strip_crate_only_inner_doc_attrs()?;
                 let macro_mod_content = edit.modify_declarative_macros(pseudo_extern_crate_name)?;
                 let prelude_mod_content = edit.resolve_pseudo_prelude(
                     pseudo_extern_crate_name,

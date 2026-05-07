@@ -694,6 +694,83 @@ impl<'opt> CodeEdit<'opt> {
         }
     }
 
+    // After bundling, each library's `lib.rs` becomes a `mod` body. rustc
+    // rejects a handful of `#![doc(...)]` directives at non-crate level (the
+    // `invalid_doc_attributes` lint, deny-by-default), so we strip them here.
+    // List mirrors the "At the crate level" section of the Rustdoc Book and
+    // rustc's `check_doc_attrs` pass; expand if a new one trips us up.
+    //
+    // A single `#![doc(...)]` may carry multiple comma-separated directives
+    // (e.g. `#![doc(html_root_url = "...", hidden)]`). We parse the full list
+    // and rebuild without the crate-only entries, deleting the attribute only
+    // if nothing remains.
+    //
+    // On parse failure we silently leave the attribute alone, matching the
+    // local idiom (see `cfg_expressions`). A malformed `#![doc(...)]` would
+    // already be rejected by rustc downstream, so we don't gain much by
+    // surfacing it here.
+    pub(crate) fn strip_crate_only_inner_doc_attrs(&mut self) -> anyhow::Result<()> {
+        const CRATE_ONLY_DOC_DIRECTIVES: &[&str] = &[
+            "html_root_url",
+            "html_logo_url",
+            "html_favicon_url",
+            "html_no_source",
+            "html_playground_url",
+            "issue_tracker_base_url",
+            "test",
+            "cfg_hide",
+        ];
+
+        fn is_crate_only(meta: &Meta) -> bool {
+            meta.path().get_ident().map_or(false, |ident| {
+                CRATE_ONLY_DOC_DIRECTIVES.iter().any(|&n| ident == n)
+            })
+        }
+
+        self.apply()?;
+
+        Visitor {
+            replacements: &mut self.replacements,
+        }
+        .visit_file(&self.file);
+        return Ok(());
+
+        struct Visitor<'a> {
+            replacements: &'a mut BTreeMap<(LineColumn, LineColumn), String>,
+        }
+
+        impl Visit<'_> for Visitor<'_> {
+            fn visit_attribute(&mut self, attr: &Attribute) {
+                if !matches!(attr.style, AttrStyle::Inner(_)) {
+                    return;
+                }
+                let Meta::List(meta_list) = &attr.meta else {
+                    return;
+                };
+                if !meta_list.path.is_ident("doc") {
+                    return;
+                }
+                let Ok(metas) =
+                    meta_list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+                else {
+                    return;
+                };
+                let total = metas.len();
+                let kept: Vec<&Meta> = metas.iter().filter(|m| !is_crate_only(m)).collect();
+                if kept.len() == total {
+                    return;
+                }
+                let replacement = if kept.is_empty() {
+                    String::new()
+                } else {
+                    format!("#![doc({})]", quote!(#(#kept),*))
+                };
+                self.replacements
+                    .insert((attr.span().start(), attr.span().end()), replacement);
+            }
+        }
+    }
+
     pub(crate) fn expand_proc_macros(
         &mut self,
         expander: &mut ProcMacroExpander<'_>,
@@ -2276,5 +2353,69 @@ macro_rules! exported {
             );
             Ok(())
         })
+    }
+
+    #[test]
+    fn strip_crate_only_inner_doc_attrs_basic() -> anyhow::Result<()> {
+        fn run(input: &str, expected: &str) -> anyhow::Result<()> {
+            DUMMY_MOD_NAME.with(|dummy_mod_name| {
+                let mut edit = CodeEdit::from_code(dummy_mod_name, input)?;
+                edit.strip_crate_only_inner_doc_attrs()?;
+                assert_eq!(expected, edit.finish()?);
+                Ok(())
+            })
+        }
+
+        run(
+            "#![doc(html_root_url = \"https://example.com/x/0.1\")]\npub fn f() {}\n",
+            "\npub fn f() {}\n",
+        )?;
+
+        run(
+            "#![doc(hidden)]\npub fn f() {}\n",
+            "#![doc(hidden)]\npub fn f() {}\n",
+        )?;
+
+        run(
+            "#[doc(html_root_url = \"https://example.com\")]\npub fn f() {}\n",
+            "#[doc(html_root_url = \"https://example.com\")]\npub fn f() {}\n",
+        )?;
+
+        run(
+            "#![allow(unused)]\npub fn f() {}\n",
+            "#![allow(unused)]\npub fn f() {}\n",
+        )?;
+
+        run(
+            "#![doc(test(no_crate_inject))]\npub fn f() {}\n",
+            "\npub fn f() {}\n",
+        )
+    }
+
+    #[test]
+    fn strip_crate_only_inner_doc_attrs_mixed() -> anyhow::Result<()> {
+        fn run(input: &str, expected: &str) -> anyhow::Result<()> {
+            DUMMY_MOD_NAME.with(|dummy_mod_name| {
+                let mut edit = CodeEdit::from_code(dummy_mod_name, input)?;
+                edit.strip_crate_only_inner_doc_attrs()?;
+                assert_eq!(expected, edit.finish()?);
+                Ok(())
+            })
+        }
+
+        run(
+            "#![doc(html_root_url = \"https://example.com\", hidden)]\npub fn f() {}\n",
+            "#![doc(hidden)]\npub fn f() {}\n",
+        )?;
+
+        run(
+            "#![doc(hidden, html_logo_url = \"https://example.com/logo.png\")]\npub fn f() {}\n",
+            "#![doc(hidden)]\npub fn f() {}\n",
+        )?;
+
+        run(
+            "#![doc(html_root_url = \"https://example.com\", hidden, masked)]\npub fn f() {}\n",
+            "#![doc(hidden , masked)]\npub fn f() {}\n",
+        )
     }
 }
