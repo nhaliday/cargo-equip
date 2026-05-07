@@ -328,9 +328,7 @@ fn find_in_git_repos(url: &str, sha1: &str, file_names: &[&str]) -> anyhow::Resu
         .cwd(tempdir.path())
         .exec()?;
 
-    let result = find(tempdir.path(), file_names).transpose();
-    tempdir.close()?;
-    result
+    find(tempdir.path(), file_names).transpose()
 }
 
 fn find(dir: &Path, file_names: &[&str]) -> Option<anyhow::Result<String>> {
