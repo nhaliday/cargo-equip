@@ -774,6 +774,7 @@ fn bundle(
                     Some(lib_package) if libs_to_bundle.contains_key(&lib_package.id)
                 )
             },
+            resolve_cfgs.then(|| &resolve_nodes[&bin_package.id].features[..]),
             || (bin_target.crate_name(), &bin_package.id.repr),
         )?;
     }

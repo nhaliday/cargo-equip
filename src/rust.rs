@@ -405,6 +405,7 @@ pub(crate) fn process_bin<'cm>(
     proc_macro_expander: Option<&mut ProcMacroExpander<'_>>,
     translate_extern_crate_name: impl FnMut(&str) -> Option<String>,
     is_lib_to_bundle: impl FnMut(&str) -> bool,
+    resolve_cfgs_features: Option<&[String]>,
     context: impl FnOnce() -> (String, &'cm str),
 ) -> anyhow::Result<String> {
     let mut edit = CodeEdit::new(cargo_equip_mod_name, src_path, context)?;
@@ -413,6 +414,9 @@ pub(crate) fn process_bin<'cm>(
     }
     edit.translate_extern_crate_paths(translate_extern_crate_name)?;
     edit.process_extern_crate_in_bin(is_lib_to_bundle)?;
+    if let Some(features) = resolve_cfgs_features {
+        edit.resolve_cfgs(features)?;
+    }
     edit.finish()
 }
 
