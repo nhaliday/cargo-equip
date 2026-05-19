@@ -4,7 +4,7 @@ expression: output
 ---
 /*#[macro_use]
 extern crate multimap as _;*/
-pub use __cargo_equip::prelude::*;
+pub(crate) use __cargo_equip::prelude::*;
 
 use crate::__cargo_equip::macros::multimap::*;
 

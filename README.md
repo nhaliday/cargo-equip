@@ -211,7 +211,7 @@ The constraints for `bin`s/`example`s are:
     cargo-equip also inserts glob imports as it does into libraries.
 
     ```rust
-    pub use __cargo_equip::prelude::*;
+    pub(crate) use __cargo_equip::prelude::*;
 
     // ︙
 
@@ -263,7 +263,7 @@ It gives tentative `extern_crate_name`s like `__package_name_0_1_0` to dependenc
 //!
 //! - `mic_impl 0.0.0 (path+████████████████████████████████████████████████████)` published in https://github.com/qryxip/mic licensed under `CC0-1.0`
 
-pub use __cargo_equip::prelude::*;
+pub(crate) use __cargo_equip::prelude::*;
 
 use input::input;
 #[allow(unused_imports)]
@@ -446,7 +446,7 @@ fn fib(n: i64) -> i64 {
 //! - `memoise 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)`         licensed under `BSD-3-Clause`
 //! - `proconio-derive 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT OR Apache-2.0`
 
-pub use __cargo_equip::prelude::*;
+pub(crate) use __cargo_equip::prelude::*;
 
 #[allow(unused_imports)]
 use memoise::memoise;

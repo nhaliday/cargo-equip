@@ -4,7 +4,7 @@ expression: output
 ---
 #![deny(unused_imports)]
 
-pub use __cargo_equip::prelude::*;
+pub(crate) use __cargo_equip::prelude::*;
 
 use maplit::{btreemap, btreeset, convert_args, hashmap, hashset};
 

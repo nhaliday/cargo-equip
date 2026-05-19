@@ -2,7 +2,7 @@
 source: tests/snapshots.rs
 expression: output
 ---
-pub use __cargo_equip::prelude::*;
+pub(crate) use __cargo_equip::prelude::*;
 
 use rustc_hash::FxHashMap;
 

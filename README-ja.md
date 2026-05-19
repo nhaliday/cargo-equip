@@ -220,7 +220,7 @@ ac-library-rs-parted-twosat      = { git = "https://github.com/qryxip/ac-library
     ライブラリ同様にglob importを挿入します。
 
     ```rust
-    pub use __cargo_equip::prelude::*;
+    pub(crate) use __cargo_equip::prelude::*;
 
     // ︙
 
@@ -275,7 +275,7 @@ fn main() -> _ {
 //!
 //! - `mic_impl 0.0.0 (path+████████████████████████████████████████████████████)` published in https://github.com/qryxip/mic licensed under `CC0-1.0`
 
-pub use __cargo_equip::prelude::*;
+pub(crate) use __cargo_equip::prelude::*;
 
 use input::input;
 #[allow(unused_imports)]
@@ -458,7 +458,7 @@ fn fib(n: i64) -> i64 {
 //! - `memoise 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)`         licensed under `BSD-3-Clause`
 //! - `proconio-derive 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)` licensed under `MIT OR Apache-2.0`
 
-pub use __cargo_equip::prelude::*;
+pub(crate) use __cargo_equip::prelude::*;
 
 #[allow(unused_imports)]
 use memoise::memoise;

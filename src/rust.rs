@@ -275,7 +275,7 @@ pub(crate) fn insert_prelude_for_main_crate(
                 self.replacements.insert(
                     (pos, pos),
                     format!(
-                        "pub use {}{}::prelude::*;\n\n",
+                        "pub(crate) use {}{}::prelude::*;\n\n",
                         if crate_root { "" } else { "crate::" },
                         self.cargo_equip_mod_name,
                     ),
@@ -1922,13 +1922,13 @@ fn main() {}
             let result = insert_prelude_for_main_crate(code, dummy_mod_name)?;
             // Should insert prelude at the crate root
             assert!(
-                result.contains("pub use __::prelude::*;"),
+                result.contains("pub(crate) use __::prelude::*;"),
                 "expected crate-root prelude, got: {}",
                 result
             );
             // Should also insert prelude inside the nested mod (with crate:: prefix)
             assert!(
-                result.contains("pub use crate::__::prelude::*;"),
+                result.contains("pub(crate) use crate::__::prelude::*;"),
                 "expected nested mod prelude, got: {}",
                 result
             );

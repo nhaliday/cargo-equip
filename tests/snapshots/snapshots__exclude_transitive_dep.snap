@@ -2,7 +2,7 @@
 source: tests/snapshots.rs
 expression: stdout
 ---
-pub use __cargo_equip::prelude::*;
+pub(crate) use __cargo_equip::prelude::*;
 
 fn main() {
     assert_eq!(Some(1), mylib::hamming_wrapper("abc", "abd"));
