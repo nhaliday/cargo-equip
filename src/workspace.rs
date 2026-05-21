@@ -473,12 +473,16 @@ pub(crate) fn cargo_minify_pass(
     let canonical_pkg = std::fs::canonicalize(temp_pkg.dir.path())?;
     let canonical_manifest = std::fs::canonicalize(temp_pkg.manifest_path())?;
 
-    ProcessBuilder::new(cargo_minify)
+    // Capture cargo-minify's stdout and replay it on stderr; otherwise it
+    // would mingle with the bundle text on cargo-equip's own stdout, breaking
+    // pipes to `pbcopy`, `bat`, etc.
+    let stdout: String = ProcessBuilder::new(cargo_minify)
         .args(&["minify", "--apply", "--allow-no-vcs", "--allow-dirty"])
         .arg("--manifest-path")
         .arg(canonical_manifest)
         .cwd(&canonical_pkg)
-        .exec()?;
+        .read_stdout()?;
+    eprint!("{}", stdout);
 
     cargo_util::paths::read(&temp_pkg.bundle_path())
 }
