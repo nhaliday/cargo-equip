@@ -161,13 +161,28 @@ pub(crate) fn list_out_dirs<'cm>(
         .collect()
 }
 
-pub(crate) fn cargo_check_using_current_lockfile_and_cache(
+pub(crate) struct TempPkg {
+    pub(crate) dir: tempfile::TempDir,
+    pub(crate) crate_name: String,
+}
+
+impl TempPkg {
+    pub(crate) fn manifest_path(&self) -> std::path::PathBuf {
+        self.dir.path().join("Cargo.toml")
+    }
+}
+
+/// Build a self-contained temporary package mirroring `package`/`target`, with
+/// `code` as the single source file. Used to give cargo (or a cargo-plugin
+/// like cargo-minify) a buildable project that reflects the bundled output.
+pub(crate) fn create_temp_pkg(
     metadata: &cm::Metadata,
     package: &cm::Package,
     target: &cm::Target,
     exclude: &[PkgSpec],
     code: &str,
-) -> anyhow::Result<()> {
+    prefix: &str,
+) -> anyhow::Result<TempPkg> {
     let package_name = {
         let mut rng = rand::thread_rng();
         let suf = (0..16)
@@ -178,12 +193,12 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
             })
             .collect::<Vec<_>>();
         let suf = str::from_utf8(&suf).expect("should be valid ASCII");
-        format!("cargo-equip-check-output-{}", suf)
+        format!("{}-{}", prefix, suf)
     };
-    let crate_name = &*if target.is_lib() {
+    let crate_name = if target.is_lib() {
         package_name.replace('-', "_")
     } else {
-        package_name.to_owned()
+        package_name.clone()
     };
 
     let temp_pkg = tempfile::Builder::new()
@@ -203,10 +218,10 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
     .parse::<toml_edit::Document>()
     .unwrap();
 
-    temp_manifest["package"]["name"] = toml_edit::value(package_name);
+    temp_manifest["package"]["name"] = toml_edit::value(&package_name);
     temp_manifest["package"]["edition"] = toml_edit::value(&*package.edition);
     let mut tbl = toml_edit::Table::new();
-    tbl["name"] = toml_edit::value(crate_name);
+    tbl["name"] = toml_edit::value(&crate_name);
     tbl["path"] = toml_edit::value(format!("{}.rs", crate_name));
     if target.is_lib() {
         temp_manifest["lib"] = toml_edit::Item::Table(tbl);
@@ -420,16 +435,38 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
     )?;
     cargo_util::paths::write(temp_pkg.path().join(format!("{}.rs", crate_name)), code)?;
 
+    Ok(TempPkg {
+        dir: temp_pkg,
+        crate_name,
+    })
+}
+
+pub(crate) fn cargo_check_using_current_lockfile_and_cache(
+    metadata: &cm::Metadata,
+    package: &cm::Package,
+    target: &cm::Target,
+    exclude: &[PkgSpec],
+    code: &str,
+) -> anyhow::Result<()> {
+    let temp_pkg = create_temp_pkg(
+        metadata,
+        package,
+        target,
+        exclude,
+        code,
+        "cargo-equip-check-output",
+    )?;
+
     ProcessBuilder::new(crate::process::cargo_exe()?)
         .arg("check")
         .arg("--target-dir")
         .arg(&metadata.target_directory)
         .arg("--manifest-path")
-        .arg(temp_pkg.path().join("Cargo.toml"))
+        .arg(temp_pkg.manifest_path())
         .args(&if target.is_bin() {
-            vec!["--bin", crate_name]
+            vec!["--bin", &temp_pkg.crate_name]
         } else if target.is_example() {
-            vec!["--example", crate_name]
+            vec!["--example", &temp_pkg.crate_name]
         } else {
             vec!["--lib"]
         })
@@ -437,7 +474,6 @@ pub(crate) fn cargo_check_using_current_lockfile_and_cache(
         .cwd(&metadata.workspace_root)
         .exec()?;
 
-    temp_pkg.close()?;
     Ok(())
 }
 
