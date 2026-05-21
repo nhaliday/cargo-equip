@@ -464,11 +464,20 @@ pub(crate) fn cargo_minify_pass(
         "cargo-equip-minify-input",
     )?;
 
+    // cargo-minify matches rustc-emitted file paths (which are realpath'd via
+    // symlink resolution) against the project sources it knows about. On macOS
+    // the system tempdir lives under `/var/folders/...` (a symlink to
+    // `/private/var/folders/...`), so an unresolved path silently yields zero
+    // applicable diagnostics. Invoke with the canonical temp-pkg path as both
+    // cwd and `--manifest-path` to keep the comparison consistent.
+    let canonical_pkg = std::fs::canonicalize(temp_pkg.dir.path())?;
+    let canonical_manifest = std::fs::canonicalize(temp_pkg.manifest_path())?;
+
     ProcessBuilder::new(cargo_minify)
         .args(&["minify", "--apply", "--allow-no-vcs", "--allow-dirty"])
         .arg("--manifest-path")
-        .arg(temp_pkg.manifest_path())
-        .cwd(&metadata.workspace_root)
+        .arg(canonical_manifest)
+        .cwd(&canonical_pkg)
         .exec()?;
 
     cargo_util::paths::read(&temp_pkg.bundle_path())
