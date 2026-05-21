@@ -1,7 +1,7 @@
 mod license;
 
 use crate::{process::ProcessBuilderExt as _, shell::Shell, toolchain, User};
-use anyhow::{bail, Context as _};
+use anyhow::{anyhow, bail, Context as _};
 use camino::{Utf8Path, Utf8PathBuf};
 use cargo_metadata as cm;
 use cargo_util::ProcessBuilder;
@@ -169,6 +169,10 @@ pub(crate) struct TempPkg {
 impl TempPkg {
     pub(crate) fn manifest_path(&self) -> std::path::PathBuf {
         self.dir.path().join("Cargo.toml")
+    }
+
+    pub(crate) fn bundle_path(&self) -> std::path::PathBuf {
+        self.dir.path().join(format!("{}.rs", self.crate_name))
     }
 }
 
@@ -425,20 +429,49 @@ pub(crate) fn create_temp_pkg(
         }
     }
 
-    cargo_util::paths::write(
-        temp_pkg.path().join("Cargo.toml"),
-        temp_manifest.to_string(),
-    )?;
-    cargo_util::paths::copy(
-        metadata.workspace_root.join("Cargo.lock"),
-        temp_pkg.path().join("Cargo.lock"),
-    )?;
-    cargo_util::paths::write(temp_pkg.path().join(format!("{}.rs", crate_name)), code)?;
-
-    Ok(TempPkg {
+    let temp_pkg = TempPkg {
         dir: temp_pkg,
         crate_name,
-    })
+    };
+
+    cargo_util::paths::write(temp_pkg.manifest_path(), temp_manifest.to_string())?;
+    cargo_util::paths::copy(
+        metadata.workspace_root.join("Cargo.lock"),
+        temp_pkg.dir.path().join("Cargo.lock"),
+    )?;
+    cargo_util::paths::write(temp_pkg.bundle_path(), code)?;
+
+    Ok(temp_pkg)
+}
+
+pub(crate) fn cargo_minify_pass(
+    metadata: &cm::Metadata,
+    package: &cm::Package,
+    target: &cm::Target,
+    exclude: &[PkgSpec],
+    code: &str,
+) -> anyhow::Result<String> {
+    let cargo_minify = which::which("cargo-minify").map_err(|_| {
+        anyhow!("command not found: cargo-minify (install with `cargo install cargo-minify`)")
+    })?;
+
+    let temp_pkg = create_temp_pkg(
+        metadata,
+        package,
+        target,
+        exclude,
+        code,
+        "cargo-equip-minify-input",
+    )?;
+
+    ProcessBuilder::new(cargo_minify)
+        .args(&["minify", "--apply", "--allow-no-vcs", "--allow-dirty"])
+        .arg("--manifest-path")
+        .arg(temp_pkg.manifest_path())
+        .cwd(&metadata.workspace_root)
+        .exec()?;
+
+    cargo_util::paths::read(&temp_pkg.bundle_path())
 }
 
 pub(crate) fn cargo_check_using_current_lockfile_and_cache(

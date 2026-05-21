@@ -238,6 +238,10 @@ pub struct OptEquip {
     #[structopt(long)]
     no_check: bool,
 
+    /// Do not remove dead code via `cargo minify --apply`
+    #[structopt(long)]
+    no_remove_dead_code: bool,
+
     /// Write to the file instead of STDOUT
     #[structopt(short, long, value_name("PATH"))]
     output: Option<PathBuf>,
@@ -464,6 +468,7 @@ pub fn run(opt: Opt, ctx: Context<'_>) -> anyhow::Result<()> {
         no_resolve_cfgs,
         no_rustfmt,
         no_check,
+        no_remove_dead_code,
         output,
         oneline: deprecated_oneline_opt,
         resolve_cfgs: deprecated_resolve_cfgs_flag,
@@ -625,6 +630,8 @@ pub fn run(opt: Opt, ctx: Context<'_>) -> anyhow::Result<()> {
         &remove,
         minify,
         !no_rustfmt,
+        !no_remove_dead_code,
+        &exclude,
         toolchain_for_proc_macro_srv.as_deref(),
         &cache_dir,
         shell,
@@ -662,6 +669,8 @@ fn bundle(
     remove: &[Remove],
     minify: Minify,
     rustfmt: bool,
+    remove_dead_code: bool,
+    exclude: &[PkgSpec],
     toolchain_for_proc_macro_srv: Option<&str>,
     cache_dir: &Path,
     shell: &mut Shell,
@@ -1170,7 +1179,9 @@ fn bundle(
         if minify == Minify::Libs {
             code += "#[cfg_attr(any(), rustfmt::skip)]\n";
         }
-        code += "#[allow(unused)]\n";
+        if !remove_dead_code {
+            code += "#[allow(unused)]\n";
+        }
         code += &format!("mod {} {{\n", cargo_equip_mod_name);
         code += "    pub(crate) mod crates {\n";
         render_mods(&mut code, &crate_mods)?;
@@ -1227,6 +1238,11 @@ fn bundle(
         render_mods(&mut code, &prelude_mods)?;
         code += "    }\n";
         code += "}\n";
+    }
+
+    if remove_dead_code {
+        let (package, target) = root_crate.split();
+        code = workspace::cargo_minify_pass(metadata, package, target, exclude, &code)?;
     }
 
     if minify == Minify::All {
