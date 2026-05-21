@@ -1243,6 +1243,19 @@ fn bundle(
     if remove_dead_code {
         let (package, target) = root_crate.split();
         code = workspace::cargo_minify_pass(metadata, package, target, exclude, &code)?;
+
+        // Restore the `#[allow(unused)]` wrapper we omitted earlier (cargo-minify
+        // needs the warnings to find items to remove). At this point cargo-minify
+        // has stripped what it can, so silencing remaining `unused` lints only
+        // affects what it couldn't handle (e.g. unread struct fields, which have
+        // no `--kinds` flag in cargo-minify).
+        let mod_header = format!("mod {} {{", cargo_equip_mod_name);
+        anyhow::ensure!(
+            code.contains(&mod_header),
+            "could not locate `{}` to inject allow(unused) post-minify",
+            mod_header,
+        );
+        code = code.replacen(&mod_header, &format!("#[allow(unused)]\n{}", mod_header), 1);
     }
 
     if minify == Minify::All {
